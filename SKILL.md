@@ -22,17 +22,27 @@ Prefer explicit `/skill:psytrainer-ml` (or an equivalent named invoke). Do not t
 
 ## Install-time runtime (do this when installing the Skill, not mid-task)
 
-Dependencies are installed once by the Skill installer:
+Dependencies are installed once by the Skill installer (macOS / Linux / Windows).
 
 ```bash
-# From the skill root, after clone/copy into the host Skill directory:
+# macOS / Linux — from the skill root after clone/copy:
 python3 scripts/install_runtime.py --wheel /path/to/PsyTrainer-*-cp313-none-any.whl
 # or: PSYTRAINER_WHEEL=/path/to/wheel python3 scripts/install_runtime.py
 ```
 
-This creates `.venv/`, installs `requirements.txt`, installs the PsyTrainer wheel, and writes `runtime.json` with the interpreter path. If the wheel path is unknown, the installer may use `--allow-missing-psytrainer` only for packaging dry-runs; real training still needs the wheel.
+```powershell
+# Windows PowerShell
+powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1 -Wheel D:\wheels\PsyTrainer-*.whl
+# or CMD:
+scripts\install_runtime.cmd --wheel D:\wheels\PsyTrainer-0.2.0-cp313-none-any.whl
+# or: set PSYTRAINER_WHEEL=D:\wheels\PsyTrainer-0.2.0-cp313-none-any.whl && scripts\install_runtime.cmd
+```
 
-**At task time: do not pip install.** Read `runtime.json` (or use `.venv/bin/python`) and run the scripts with that interpreter. If `ccpl_training_models` is still missing, tell the user to re-run `scripts/install_runtime.py --wheel …` and stop.
+Globs are expanded inside `install_runtime.py` (Windows `cmd` does not expand `*.whl`). On Windows the installer prefers the `py` launcher (`py -3.13` …). Use `--recreate` to rebuild `.venv`.
+
+This creates `.venv/`, installs `requirements.txt`, installs the PsyTrainer wheel, and writes `runtime.json` with the interpreter path (`.venv/bin/python` or `.venv\Scripts\python.exe`). If the wheel path is unknown, the installer may use `--allow-missing-psytrainer` only for packaging dry-runs; real training still needs the wheel.
+
+**At task time: do not pip install.** Read `runtime.json` → `python` and run the scripts with that interpreter. If `ccpl_training_models` is still missing, tell the user to re-run the install script with `--wheel` and stop.
 
 ## Workflow
 
