@@ -1,0 +1,6 @@
+interface:
+  display_name: "PsyTrainer ML"
+  short_description: "Train models and run batch predictions"
+  default_prompt: "Use $psytrainer-ml to train models or predict from my CSV data."
+policy:
+  allow_implicit_invocation: false

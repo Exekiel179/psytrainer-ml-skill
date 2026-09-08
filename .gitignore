@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.Python
+.venv/
+venv/
+.env
+.env.*
+config/ml.ini
+outputs/
+*.pkl
+.DS_Store
+.pytest_cache/
+.mypy_cache/
