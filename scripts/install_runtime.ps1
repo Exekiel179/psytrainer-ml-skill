@@ -1,15 +1,15 @@
 # Install psytrainer-ml runtime on Windows (Skill install time).
 # Usage:
-#   powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1 -Wheel D:\wheels\PsyTrainer-0.2.0-cp313-none-any.whl
+#   powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1 -Wheel 'D:\wheels\PsyTrainer-*.whl'
-#   $env:PSYTRAINER_WHEEL = 'D:\wheels\PsyTrainer-0.2.0-cp313-none-any.whl'
+#   $env:PSYTRAINER_WHEEL = 'D:\wheels\PsyTrainer-0.2.0-cp314-none-any.whl'
 #   powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1
 
 param(
     [string]$Wheel = $env:PSYTRAINER_WHEEL,
     [string]$Python = "",
     [switch]$Recreate,
-    [switch]$AllowMissingPsyTrainer
+    [string]$Wheelhouse = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,7 +20,7 @@ $scriptArgs = @("scripts\install_runtime.py")
 if ($Wheel) { $scriptArgs += @("--wheel", $Wheel) }
 if ($Python) { $scriptArgs += @("--python", $Python) }
 if ($Recreate) { $scriptArgs += "--recreate" }
-if ($AllowMissingPsyTrainer) { $scriptArgs += "--allow-missing-psytrainer" }
+if ($Wheelhouse) { $scriptArgs += @("--wheelhouse", $Wheelhouse) }
 
 if (Get-Command py -ErrorAction SilentlyContinue) {
     Write-Host "+ py -3 $($scriptArgs -join ' ')"
@@ -33,5 +33,5 @@ if (Get-Command python -ErrorAction SilentlyContinue) {
     exit $LASTEXITCODE
 }
 
-Write-Error "Python not found. Install Python 3.10+ from python.org and enable the py launcher."
+Write-Error "Python not found. Install Python 3.14 from python.org and enable the py launcher."
 exit 1

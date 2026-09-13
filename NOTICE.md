@@ -6,12 +6,16 @@
 
 ## PsyTrainer runtime
 
-Training requires the separately distributed PsyTrainer Python package
-(typically a wheel such as `PsyTrainer-*-cp313-none-any.whl` providing
-`ccpl_training_models`). That package is **not** bundled here.
+`vendor/PsyTrainer-0.2.0-cp314-none-any.whl` is the original, unmodified
+PsyTrainer 0.2.0 distribution by CCPL. Its embedded
+`PsyTrainer-0.2.0.dist-info/LICENSE` contains the Apache License, Version 2.0.
+The wheel retains all original source files, attribution, metadata, and license.
+Its SHA-256 is
+`3e999045342b82cf25cb453e61a185530b553e4b9d439d2c5f5964fc5e55c357`.
 
-- Install and license terms for PsyTrainer follow its own distribution.
-- Do not redistribute the wheel from this repository.
+The wheel declares `cp314-none-any`: use CPython 3.14. The installer verifies
+the bundled file's checksum. Dependencies retain their own distribution licenses.
+
 - Prediction loads `model.pkl` via joblib/pickle: only use model directories
   produced by a trusted local training run or otherwise explicitly trusted by
   the researcher.

@@ -4,11 +4,11 @@
 Cross-platform (macOS / Linux / Windows):
   - Creates a local .venv under the skill root
   - Installs requirements.txt
-  - Optionally installs a PsyTrainer wheel (--wheel / PSYTRAINER_WHEEL; globs OK)
+  - Installs the bundled PsyTrainer wheel and all transitive dependencies
   - Writes runtime.json so task runs use the install-time interpreter (no mid-task pip)
 
 Windows notes:
-  - Prefers the `py` launcher (py -3.13 …) then `python`
+  - Selects the Python version declared by the wheel
   - venv interpreter is .venv\\Scripts\\python.exe
   - Wheel globs are expanded in Python (cmd.exe does not expand *)
 """
@@ -16,13 +16,15 @@ Windows notes:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
-import venv
+import zipfile
+from email.parser import BytesParser
 from pathlib import Path
 
 
@@ -31,6 +33,8 @@ VENV_DIR = ROOT / ".venv"
 REQUIREMENTS = ROOT / "requirements.txt"
 RUNTIME_JSON = ROOT / "runtime.json"
 IS_WINDOWS = os.name == "nt"
+BUNDLED_WHEEL = ROOT / "vendor" / "PsyTrainer-0.2.0-cp314-none-any.whl"
+BUNDLED_SHA256 = "3e999045342b82cf25cb453e61a185530b553e4b9d439d2c5f5964fc5e55c357"
 
 
 def run(cmd: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -54,45 +58,46 @@ def python_version(cmd: list[str]) -> tuple[int, int] | None:
     return int(match.group(1)), int(match.group(2))
 
 
-def resolve_base_python(preferred: str | None) -> list[str]:
-    """Return an argv prefix that launches the base interpreter (may be `py -3.13`)."""
+def resolve_base_python(preferred: str | None, required: tuple[int, int]) -> list[str]:
+    """Return an argv prefix that launches a matching base interpreter."""
     if preferred:
-        # Allow "py -3.13" as a single quoted string, or a bare path/name.
+        # Allow "py -3.14" as a single quoted string, or a bare path/name.
         parts = preferred.split() if preferred.lower().startswith("py ") else [preferred]
         if len(parts) == 1:
             resolved = shutil.which(parts[0]) or parts[0]
             parts = [resolved]
-        if python_version(parts) is None:
-            raise SystemExit(f"python not runnable: {preferred}")
+        if python_version(parts) != required:
+            raise SystemExit(f"Python {required[0]}.{required[1]} required by wheel: {preferred}")
         return parts
 
-    candidates: list[list[str]] = []
+    version_name = f"{required[0]}.{required[1]}"
+    candidates: list[list[str]] = [[getattr(sys, "_base_executable", sys.executable)]]
     if IS_WINDOWS:
-        for minor in ("3.13", "3.12", "3.11", "3.10"):
-            candidates.append(["py", f"-{minor}"])
-        candidates.append(["py", "-3"])
-        for name in ("python3.13", "python3.12", "python3.11", "python", "python3"):
-            found = shutil.which(name)
-            if found:
-                candidates.append([found])
-    else:
-        for name in ("python3.13", "python3.12", "python3.11", "python3"):
-            found = shutil.which(name)
-            if found:
-                candidates.append([found])
+        candidates.append(["py", f"-{version_name}"])
+    for name in (f"python{version_name}", "python3", "python"):
+        found = shutil.which(name)
+        if found:
+            candidates.append([found])
+    if shutil.which("uv"):
+        try:
+            found = subprocess.check_output(
+                ["uv", "python", "find", "--no-python-downloads", version_name],
+                text=True, stderr=subprocess.DEVNULL,
+            ).strip()
+            candidates.append([found])
+        except subprocess.CalledProcessError:
+            pass
 
     scored: list[tuple[tuple[int, int], list[str]]] = []
     for cmd in candidates:
         version = python_version(cmd)
-        if version and version[0] >= 3 and version[1] >= 10:
+        if version == required:
             scored.append((version, cmd))
     if not scored:
         raise SystemExit(
-            "no suitable Python 3.10+ interpreter found on PATH"
-            + (" (try: py -3.13 or install Python from python.org)" if IS_WINDOWS else "")
+            f"Python {version_name} required by the PsyTrainer wheel. "
+            f"Install it from python.org or run: uv python install {version_name}"
         )
-    # Prefer higher version (PsyTrainer wheels are often cp313).
-    scored.sort(key=lambda item: item[0], reverse=True)
     best_version, best_cmd = scored[0]
     print(f"base python: {' '.join(best_cmd)} ({best_version[0]}.{best_version[1]})", flush=True)
     return best_cmd
@@ -111,25 +116,31 @@ def venv_pip() -> Path:
 
 
 def ensure_venv(base_cmd: list[str], *, recreate: bool) -> Path:
+    if VENV_DIR.exists() and not recreate:
+        if python_version([str(venv_python())]) != python_version(base_cmd):
+            raise SystemExit("existing .venv uses a different Python; re-run with --recreate")
     if recreate and VENV_DIR.exists():
         print(f"removing existing venv {VENV_DIR}", flush=True)
         shutil.rmtree(VENV_DIR)
     if not VENV_DIR.exists():
         printable = " ".join(base_cmd)
         print(f"creating venv with {printable} -> {VENV_DIR}", flush=True)
-        # Use the selected interpreter to create the venv so Windows `py -3.13` works.
+        # Use the selected interpreter so Windows launcher arguments work too.
         run([*base_cmd, "-m", "venv", str(VENV_DIR)])
     py = venv_python()
     if not py.is_file():
         raise SystemExit(f"venv python missing: {py}")
-    run([str(py), "-m", "pip", "install", "--upgrade", "pip"])
     return py
 
 
-def resolve_wheel(spec: str | None) -> Path | None:
+def resolve_wheel(spec: str | None) -> Path:
     """Resolve a wheel path; expand globs in-process (needed on Windows cmd)."""
     if not spec:
-        return None
+        if not BUNDLED_WHEEL.is_file():
+            raise SystemExit(f"incomplete download: bundled wheel missing: {BUNDLED_WHEEL}")
+        if hashlib.sha256(BUNDLED_WHEEL.read_bytes()).hexdigest() != BUNDLED_SHA256:
+            raise SystemExit("bundled PsyTrainer wheel checksum mismatch; download the complete package again")
+        return BUNDLED_WHEEL
     raw = spec.strip().strip('"').strip("'")
     path = Path(raw).expanduser()
     if path.is_file():
@@ -181,41 +192,67 @@ def resolve_wheel(spec: str | None) -> Path | None:
     return uniq[0]
 
 
-def install_requirements(py: Path) -> None:
+def wheel_python(wheel: Path) -> tuple[int, int]:
+    """Read the wheel's declared tag without guessing from a filename."""
+    try:
+        with zipfile.ZipFile(wheel) as archive:
+            if archive.testzip() is not None:
+                raise ValueError("corrupt wheel archive")
+            metadata_files = [n for n in archive.namelist() if n.endswith(".dist-info/METADATA")]
+            wheel_files = [n for n in archive.namelist() if n.endswith(".dist-info/WHEEL")]
+            if len(metadata_files) != 1 or len(wheel_files) != 1:
+                raise ValueError("missing or ambiguous wheel metadata")
+            metadata = BytesParser().parsebytes(archive.read(metadata_files[0]))
+            if metadata.get("Name", "").lower() != "psytrainer":
+                raise ValueError("expected PsyTrainer distribution")
+            tags = BytesParser().parsebytes(archive.read(wheel_files[0])).get_all("Tag", [])
+            versions = {match.groups() for tag in tags
+                        if (match := re.fullmatch(r"cp(3)(\d+)-none-any", tag))}
+            if len(versions) != 1:
+                raise ValueError(f"expected a single CPython purelib tag, got {tags}")
+            major, minor = versions.pop()
+            return int(major), int(minor)
+    except (OSError, zipfile.BadZipFile, ValueError) as exc:
+        raise SystemExit(f"invalid PsyTrainer wheel: {exc}") from exc
+
+
+def install_requirements(py: Path, wheel: Path, wheelhouse: Path | None = None) -> None:
     if not REQUIREMENTS.is_file():
         raise SystemExit(f"missing {REQUIREMENTS}")
-    run([str(py), "-m", "pip", "install", "-r", str(REQUIREMENTS)])
+    options = ["--no-index", "--find-links", str(wheelhouse)] if wheelhouse else []
+    # Resolve wrapper and vendor requirements together so neither overwrites the other.
+    run([str(py), "-m", "pip", "install", *options, "-r", str(REQUIREMENTS), str(wheel)])
+    run([str(py), "-m", "pip", "check"])
 
 
-def install_wheel(py: Path, wheel: Path) -> None:
-    run([str(py), "-m", "pip", "install", "--force-reinstall", str(wheel)])
-
-
-def verify(py: Path, require_psytrainer: bool) -> dict[str, object]:
+def verify(py: Path) -> dict[str, object]:
     code = (
-        "import importlib.util, json\n"
+        "import importlib, json\n"
         "mods = ['pandas', 'numpy', 'joblib', 'ccpl_training_models']\n"
-        "print(json.dumps({m: bool(importlib.util.find_spec(m)) for m in mods}))\n"
+        "status = {}\n"
+        "for m in mods:\n"
+        "    importlib.import_module(m)\n"
+        "    status[m] = True\n"
+        "from ccpl_training_models.trainer import Trainer\n"
+        "trainer = Trainer('general')\n"
+        "assert all(callable(getattr(trainer, m, None)) for m in ['set_base_config', 'set_scoring', 'run'])\n"
+        "print(json.dumps(status))\n"
     )
     out = subprocess.check_output([str(py), "-c", code], text=True).strip()
-    status = json.loads(out)
+    status = json.loads(out.splitlines()[-1])
     print("import probe:", status, flush=True)
-    for name in ("pandas", "numpy", "joblib"):
+    for name in ("pandas", "numpy", "joblib", "ccpl_training_models"):
         if not status.get(name):
             raise SystemExit(f"required module missing after install: {name}")
-    if require_psytrainer and not status.get("ccpl_training_models"):
-        raise SystemExit(
-            "ccpl_training_models missing; pass --wheel path\\to\\PsyTrainer-*.whl "
-            "or set PSYTRAINER_WHEEL"
-        )
     return status
 
 
 def write_runtime(py: Path, status: dict[str, object], wheel: str | None, base_cmd: list[str]) -> None:
     payload = {
         "schemaVersion": "psytrainer-ml/runtime/v1",
+        "ready": True,
         "platform": os.name,
-        "python": str(py.resolve()),
+        "python": str(py.absolute()),
         "pythonLauncher": base_cmd,
         "venv": str(VENV_DIR.resolve()),
         "pip": str(venv_pip().resolve()) if venv_pip().exists() else None,
@@ -223,7 +260,9 @@ def write_runtime(py: Path, status: dict[str, object], wheel: str | None, base_c
         "wheel": wheel,
         "windows": IS_WINDOWS,
     }
-    RUNTIME_JSON.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary = RUNTIME_JSON.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(RUNTIME_JSON)
     print(f"wrote {RUNTIME_JSON}", flush=True)
     if IS_WINDOWS:
         print(f"Windows interpreter: {py}", flush=True)
@@ -236,11 +275,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--python",
-        help='Base Python for the venv, e.g. "py -3.13", C:\\Python313\\python.exe, or python3.13',
+        help='Base Python matching the wheel, e.g. "py -3.14" or python3.14',
     )
     parser.add_argument(
         "--wheel",
-        help="Path or glob to PsyTrainer-*.whl (or set PSYTRAINER_WHEEL). Globs work on Windows.",
+        help="Override the bundled PsyTrainer wheel (or set PSYTRAINER_WHEEL). Globs work on Windows.",
     )
     parser.add_argument(
         "--recreate",
@@ -250,33 +289,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--allow-missing-psytrainer",
         action="store_true",
-        help="Install pandas/numpy/joblib even if the PsyTrainer wheel is unavailable",
+        help=argparse.SUPPRESS,
     )
+    parser.add_argument("--wheelhouse", type=Path, help="Install all dependencies offline from this directory")
     args = parser.parse_args(argv)
 
+    # A failed re-install must never leave an old success marker for callers.
+    RUNTIME_JSON.unlink(missing_ok=True)
+    if args.allow_missing_psytrainer:
+        raise SystemExit("--allow-missing-psytrainer is no longer supported: a complete runtime is required")
     wheel_spec = (args.wheel or os.environ.get("PSYTRAINER_WHEEL", "")).strip() or None
     wheel_path = resolve_wheel(wheel_spec)
-
-    base_cmd = resolve_base_python(args.python)
+    required = wheel_python(wheel_path)
+    wheelhouse = args.wheelhouse
+    if wheelhouse is None and (ROOT / "wheelhouse").is_dir():
+        wheelhouse = ROOT / "wheelhouse"
+    if wheelhouse is not None and not wheelhouse.is_dir():
+        raise SystemExit(f"wheelhouse directory not found: {wheelhouse}")
+    base_cmd = resolve_base_python(args.python, required)
     py = ensure_venv(base_cmd, recreate=args.recreate)
-    install_requirements(py)
-    if wheel_path is not None:
-        install_wheel(py, wheel_path)
-    elif not args.allow_missing_psytrainer:
-        print(
-            "No --wheel / PSYTRAINER_WHEEL provided. "
-            "Re-run with the vendor PsyTrainer wheel to finish install.",
-            file=sys.stderr,
-            flush=True,
-        )
-        status = verify(py, require_psytrainer=False)
-        write_runtime(py, status, None, base_cmd)
-        return 2
-
-    status = verify(py, require_psytrainer=not args.allow_missing_psytrainer)
-    write_runtime(py, status, str(wheel_path.resolve()) if wheel_path else None, base_cmd)
+    install_requirements(py, wheel_path, wheelhouse)
+    status = verify(py)
+    write_runtime(py, status, str(wheel_path.resolve()), base_cmd)
     print("psytrainer-ml runtime install complete", flush=True)
-    return 0 if status.get("ccpl_training_models") or args.allow_missing_psytrainer else 2
+    return 0
 
 
 if __name__ == "__main__":

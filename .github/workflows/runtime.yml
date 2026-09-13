@@ -1,0 +1,89 @@
+name: Complete runtime
+
+on:
+  push:
+  pull_request:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: macOS OpenMP
+        if: runner.os == 'macOS'
+        run: brew install libomp
+      - name: Install complete runtime
+        run: python scripts/install_runtime.py
+      - name: Test real runtime
+        shell: python
+        run: |
+          import json, subprocess
+          runtime = json.load(open('runtime.json'))
+          assert runtime['ready']
+          subprocess.run([runtime['python'], '-m', 'unittest', 'discover', '-s', 'tests', '-v'], check=True)
+          subprocess.run([runtime['python'], 'tests/smoke_runtime.py'], check=True)
+
+  released-bundle:
+    if: github.event_name == 'release'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: psytrainer-ml-windows-x64.zip
+          - os: macos-latest
+            asset: psytrainer-ml-macos-arm64.zip
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: macOS OpenMP
+        if: runner.os == 'macOS'
+        run: brew install libomp
+      - name: Download published bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          BUNDLE_ASSET: ${{ matrix.asset }}
+        shell: python
+        run: |
+          import os, subprocess, zipfile
+          subprocess.run(['gh', 'release', 'download', os.environ['RELEASE_TAG'],
+                          '--pattern', os.environ['BUNDLE_ASSET']], check=True)
+          with zipfile.ZipFile(os.environ['BUNDLE_ASSET']) as archive:
+              assert archive.testzip() is None
+              archive.extractall('fresh')
+      - name: Install and test published bundle offline
+        shell: python
+        run: |
+          import json, os, subprocess, sys
+          from pathlib import Path
+          root = Path('fresh/psytrainer-ml').resolve()
+          assert not (root / '.venv').exists()
+          assert not (root / 'runtime.json').exists()
+          assert len(list((root / 'wheelhouse').glob('*.whl'))) == 29
+          env = dict(os.environ, PIP_NO_INDEX='1', PYTHONNOUSERSITE='1')
+          if os.name == 'nt':
+              command = ['cmd', '/c', 'scripts\\install_runtime.cmd']
+          else:
+              command = [sys.executable, 'scripts/install_runtime.py']
+          subprocess.run(command, cwd=root, env=env, check=True)
+          runtime = json.loads((root / 'runtime.json').read_text())
+          assert runtime['ready'] and all(runtime['imports'].values())
+          subprocess.run([runtime['python'], '-m', 'unittest', 'discover', '-s', 'tests', '-v'],
+                         cwd=root, env=env, check=True)
+          subprocess.run([runtime['python'], 'tests/smoke_runtime.py'], cwd=root, env=env, check=True)

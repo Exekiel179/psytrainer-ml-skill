@@ -26,30 +26,38 @@ Dependencies are installed once by the Skill installer (macOS / Linux / Windows)
 
 ```bash
 # macOS / Linux — from the skill root after clone/copy:
-python3 scripts/install_runtime.py --wheel /path/to/PsyTrainer-*-cp313-none-any.whl
-# or: PSYTRAINER_WHEEL=/path/to/wheel python3 scripts/install_runtime.py
+python3 scripts/install_runtime.py
 ```
 
 ```powershell
 # Windows PowerShell
-powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1 -Wheel D:\wheels\PsyTrainer-*.whl
+powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1
 # or CMD:
-scripts\install_runtime.cmd --wheel D:\wheels\PsyTrainer-0.2.0-cp313-none-any.whl
-# or: set PSYTRAINER_WHEEL=D:\wheels\PsyTrainer-0.2.0-cp313-none-any.whl && scripts\install_runtime.cmd
+scripts\install_runtime.cmd
 ```
 
-Globs are expanded inside `install_runtime.py` (Windows `cmd` does not expand `*.whl`). On Windows the installer prefers the `py` launcher (`py -3.13` …). Use `--recreate` to rebuild `.venv`.
+The repository includes `vendor/PsyTrainer-0.2.0-cp314-none-any.whl`.
+Install CPython 3.14 first. The installer selects a matching interpreter and
+validates the bundled wheel checksum. Use `--recreate` to rebuild an older `.venv`.
+An optional `--wheel` override supports globs expanded inside Python.
 
-This creates `.venv/`, installs `requirements.txt`, installs the PsyTrainer wheel, and writes `runtime.json` with the interpreter path (`.venv/bin/python` or `.venv\Scripts\python.exe`). If the wheel path is unknown, the installer may use `--allow-missing-psytrainer` only for packaging dry-runs; real training still needs the wheel.
+This installs the wheel and all Python dependencies, runs `pip check`, and
+imports and constructs the real Trainer before writing `runtime.json` with
+`ready: true`. Never use `--allow-missing-psytrainer`, report a partial install
+as complete, or use a data-only dry-run as proof of readiness. A missing wheel
+means an incomplete download: re-download the entire package. Offline bundles
+built by `scripts/build_bundle.py` include `wheelhouse/`, detected automatically.
 
-**At task time: do not pip install.** Read `runtime.json` → `python` and run the scripts with that interpreter. If `ccpl_training_models` is still missing, tell the user to re-run the install script with `--wheel` and stop.
+**At task time: do not pip install.** Require `runtime.json` to have `ready: true`,
+then use its `python`. If the real Trainer cannot import, re-run the complete
+installer during setup before attempting training.
 
 ## Workflow
 
 1. Determine whether the user wants training, prediction, or interpretation of existing outputs.
 2. Inspect the CSV headers and sample IDs. Ask only for choices that cannot be inferred, such as classification versus regression, target columns, or the intended scoring metric.
 3. Create or update `config/ml.ini` using `config/ml.ini.example`. Paths may be absolute or relative to the config file. For a smoke check, copy `fixtures/*.csv` paths from the example comments.
-4. Resolve the install-time Python from `runtime.json` → `python` (fallback: `.venv/bin/python`). Confirm `ccpl_training_models` imports; if not, stop and point to `scripts/install_runtime.py`.
+4. Require `runtime.json` → `ready: true`, then use its `python`. Confirm `ccpl_training_models.trainer.Trainer` imports; if not, stop and point to `scripts/install_runtime.py`.
 5. Run `--dry-run` first to validate paths, table shape, sample alignment, target/model selection, and output location.
 6. Run the requested operation.
 7. Read `training-summary.json` or `prediction-summary.json` and the framework's result files before explaining outcomes.

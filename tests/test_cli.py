@@ -67,6 +67,12 @@ def write_config(path: Path, sections: dict[str, dict[str, str]]) -> None:
 
 
 class PsyTrainerCliTests(unittest.TestCase):
+    def test_family_tags_remain_strings_for_vendor_api(self):
+        self.assertEqual(trainer_cli.parse_tags("classification", {"classification"}), "classification")
+        self.assertEqual(trainer_cli.parse_tags("all_ff", {"all_ff"}), "all_ff")
+        self.assertEqual(trainer_cli.parse_tags("all_resample", {"all_resample"}), "all_resample")
+        self.assertEqual(trainer_cli.parse_tags("ModelA,ModelB", {"classification"}), ["ModelA", "ModelB"])
+
     def test_training_aligns_labels_by_sample_id(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

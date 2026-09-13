@@ -28,6 +28,13 @@ def parse_list(value: str | None) -> list[str] | None:
     return items or None
 
 
+def parse_tags(value: str | None, keywords: set[str]) -> str | list[str] | None:
+    items = parse_list(value)
+    if items and len(items) == 1 and items[0] in keywords:
+        return items[0]
+    return items
+
+
 def resolve_path(config_path: Path, value: str, name: str) -> Path:
     if not value.strip():
         raise ValueError(f"{name} is required in [{SECTION}]")
@@ -66,9 +73,9 @@ def load_settings(config_path: Path, output_override: Path | None = None) -> dic
         "is_need_clean": section.getboolean("is_need_clean", fallback=True),
         "is_use_model_params": section.getboolean("is_use_model_params", fallback=False),
         "scoring": parse_list(section.get("scoring")),
-        "ff_tags": parse_list(section.get("ff_tags")),
-        "model_tags": parse_list(section.get("model_tags")),
-        "resample_tags": parse_list(section.get("resample_tags")),
+        "ff_tags": parse_tags(section.get("ff_tags"), {"all_ff"}),
+        "model_tags": parse_tags(section.get("model_tags", "regression"), {"regression", "classification"}),
+        "resample_tags": parse_tags(section.get("resample_tags"), {"all_resample"}),
     }
     if settings["cv_times"] < 2:
         raise ValueError("cv_times must be at least 2")
@@ -147,7 +154,7 @@ def train(settings: dict[str, Any], selected_targets: list[str]) -> dict[str, An
         from ccpl_training_models.trainer import Trainer
     except ImportError as exc:
         raise RuntimeError(
-            "PsyTrainer is unavailable; use Python 3.13 with the PsyTrainer wheel installed"
+            "PsyTrainer is unavailable; run scripts/install_runtime.py and use runtime.json python"
         ) from exc
 
     features, labels, targets = load_tables(

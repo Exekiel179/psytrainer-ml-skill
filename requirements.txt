@@ -1,4 +1,4 @@
-# PsyTrainer is installed separately from its Python 3.13 wheel.
+# Installed together with the bundled PsyTrainer wheel and its dependencies.
 pandas>=2.0,<3
 numpy>=1.26,<3
 joblib>=1.3,<2
