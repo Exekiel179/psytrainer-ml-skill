@@ -5,6 +5,12 @@ on:
   pull_request:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published Skill version to test
+        required: true
+        default: v0.1.0
 
 permissions:
   contents: read
@@ -35,16 +41,12 @@ jobs:
           subprocess.run([runtime['python'], '-m', 'unittest', 'discover', '-s', 'tests', '-v'], check=True)
           subprocess.run([runtime['python'], 'tests/smoke_runtime.py'], check=True)
 
-  released-bundle:
-    if: github.event_name == 'release'
+  released-skill:
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            asset: psytrainer-ml-windows-x64.zip
-          - os: macos-latest
-            asset: psytrainer-ml-macos-arm64.zip
+        os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/setup-python@v5
@@ -53,21 +55,20 @@ jobs:
       - name: macOS OpenMP
         if: runner.os == 'macOS'
         run: brew install libomp
-      - name: Download published bundle
+      - name: Download published Skill
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name }}
-          BUNDLE_ASSET: ${{ matrix.asset }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
         shell: python
         run: |
           import os, subprocess, zipfile
           subprocess.run(['gh', 'release', 'download', os.environ['RELEASE_TAG'],
-                          '--pattern', os.environ['BUNDLE_ASSET']], check=True)
-          with zipfile.ZipFile(os.environ['BUNDLE_ASSET']) as archive:
+                          '--pattern', 'psytrainer-ml-skill.zip'], check=True)
+          with zipfile.ZipFile('psytrainer-ml-skill.zip') as archive:
               assert archive.testzip() is None
               archive.extractall('fresh')
-      - name: Install and test published bundle offline
+      - name: Install and test published Skill in a fresh environment
         shell: python
         run: |
           import json, os, subprocess, sys
@@ -75,8 +76,9 @@ jobs:
           root = Path('fresh/psytrainer-ml').resolve()
           assert not (root / '.venv').exists()
           assert not (root / 'runtime.json').exists()
-          assert len(list((root / 'wheelhouse').glob('*.whl'))) == 29
-          env = dict(os.environ, PIP_NO_INDEX='1', PYTHONNOUSERSITE='1')
+          assert (root / 'SKILL.md').is_file()
+          assert (root / 'vendor/PsyTrainer-0.2.0-cp314-none-any.whl').is_file()
+          env = dict(os.environ, PYTHONNOUSERSITE='1')
           if os.name == 'nt':
               command = ['cmd', '/c', 'scripts\\install_runtime.cmd']
           else:
