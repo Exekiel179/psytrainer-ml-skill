@@ -5,6 +5,17 @@ Standalone PsyClaw / Codex Skill for tabular training and batch prediction with 
 - **Skill name / id:** `psytrainer-ml`
 - **Invoke:** `/skill:psytrainer-ml`
 
+## Download the Skill
+
+Use `psytrainer-ml-skill.zip` from the latest GitHub Release, or clone this
+repository. This is the normal Skill package: instructions, scripts, configuration,
+and the bundled PsyTrainer core wheel. Run the installer once to download its
+Python dependencies. At task time, use the installed environment.
+
+The larger Windows/macOS offline ZIPs are optional alternatives for computers
+without package-index access. They contain the same Skill plus cached Python
+dependencies; they are not separate products and are not needed for normal setup.
+
 This repository is independent of the PsyClaw product tree. Clone into a host Skill directory (for example project `.psyclaw/imports/recommended/psytrainer-ml` or `~/.psyclaw/skills/psytrainer-ml`), **install the runtime once**, then enable the Skill.
 
 ## Install (complete runtime required)
