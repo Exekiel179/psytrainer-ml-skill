@@ -92,12 +92,40 @@ Do **not** nest this repo inside the PsyClaw source tree.
 | `scripts/build_bundle.py` | Complete offline Python dependency ZIP builder |
 | `scripts/install_runtime.ps1` / `.cmd` | Windows wrappers |
 | `scripts/PsyTrainer.py` | Training CLI wrapper |
+| `scripts/ml.py` | Compact agent commands: inspect, configure, capabilities, train, predict, report |
 | `scripts/batch_predict.py` | Batch prediction CLI |
 | `config/ml.ini.example` | Config template |
 | `fixtures/` | Tiny CSVs for dry-run smoke checks |
 | `tests/` | Wrapper + installer unit tests |
 
 ## Quick start (after install)
+
+New analyses use the fold-local Pipeline runner, which generates plots and a
+Word report automatically:
+
+```bash
+.venv/bin/python scripts/pipeline_train.py train --features data/features.csv --labels data/labels.csv --task regression --target score --output-dir outputs/run-01
+.venv/bin/python scripts/pipeline_train.py predict --features data/new.csv --model outputs/run-01/pipeline.joblib --output outputs/predictions.csv
+```
+
+Supports grouped/time validation, an independent holdout or external test set,
+fold-local imputation/selection/PCA/resampling, permutation importance, vector
+figures and Chinese/English `.docx` reports. See [Pipeline reference](references/pipeline.md).
+Existing installations should rerun the installer to add the report dependencies.
+
+For agent-driven setup and runs, use the compact CLI. Configuration generation
+validates CSVs, selects a small baseline, and estimates fit count:
+
+```bash
+.venv/bin/python scripts/ml.py configure --features data/features.csv --labels data/labels.csv --task regression --target score --config config/run.ini --output-dir outputs/run-01
+.venv/bin/python scripts/ml.py train --config config/run.ini
+```
+
+Use `--preset standard` for three comparison models, or repeat `--model` for
+explicit choices. `ml.py capabilities` lists the installed registry on demand.
+`ml.py report` returns top models without loading pickles. Detailed logs, results
+and input hashes remain on disk. See [command reference](references/commands.md)
+for limits and prediction setup. Existing CLI commands remain compatible.
 
 ```bash
 cp config/ml.ini.example config/ml.ini
@@ -125,6 +153,8 @@ Prediction loads `model.pkl` via joblib/pickle. Only use model directories you t
 ```bash
 .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python tests/smoke_runtime.py
+.venv/bin/python tests/smoke_agent.py
+.venv/bin/python tests/smoke_pipeline.py
 ```
 
 The second command runs real training and prediction on synthetic data in a

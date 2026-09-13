@@ -78,7 +78,7 @@ class InstallRuntimeTests(unittest.TestCase):
     def test_verification_imports_real_trainer_not_just_package_spec(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            for name in ("pandas", "numpy", "joblib"):
+            for name in ("pandas", "numpy", "joblib", "sklearn", "imblearn", "matplotlib", "docx"):
                 (root / f"{name}.py").write_text("")
             package = root / "ccpl_training_models"
             package.mkdir()

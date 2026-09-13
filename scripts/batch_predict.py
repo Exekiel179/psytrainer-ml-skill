@@ -10,6 +10,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Callable
+from table_io import read_table
 
 
 SECTION = "batch_predict"
@@ -77,7 +78,7 @@ def load_features(path: Path):
     except ImportError as exc:
         raise RuntimeError("prediction requires pandas and numpy") from exc
 
-    data = pd.read_csv(path, index_col=0)
+    data = read_table(path)
     if data.empty:
         raise ValueError("feature CSV must not be empty")
     if data.index.has_duplicates or data.columns.has_duplicates:
@@ -91,11 +92,21 @@ def load_features(path: Path):
     return data
 
 
-def selected_input(data, model_dir: Path, loader: Callable[[Path], Any]):
+def selected_input(data, model_dir: Path, loader: Callable[[Path], Any], model=None):
     import pandas as pd
 
     feature_path = model_dir / "feature_filter.csv"
     if not feature_path.is_file():
+        if model_dir.name.startswith("NoneType&") and model is not None:
+            names = getattr(model, "feature_names_in_", None)
+            if names is not None:
+                names = [str(name) for name in names]
+                if not names or len(names) != len(set(names)):
+                    raise ValueError("invalid model feature names")
+                missing = [name for name in names if name not in data.columns]
+                if missing:
+                    raise ValueError(f"input is missing model features: {missing[:10]}")
+                return data.loc[:, names]
         raise FileNotFoundError("missing feature_filter.csv")
     feature_frame = pd.read_csv(feature_path, index_col=0)
     if "feature_name" not in feature_frame.columns:
@@ -150,7 +161,7 @@ def predict(settings: dict[str, Path], selected_models: list[str]) -> dict[str, 
             if not model_path.is_file():
                 raise FileNotFoundError("missing model.pkl")
             model = load(model_path)
-            model_input = selected_input(data, model_dir, load)
+            model_input = selected_input(data, model_dir, load, model)
             values = model.predict(model_input)
             values = values.tolist() if hasattr(values, "tolist") else list(values)
             if len(values) != len(data):

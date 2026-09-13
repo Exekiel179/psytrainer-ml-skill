@@ -9,6 +9,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+from table_io import read_table
 
 
 SECTION = "PsyTrainer"
@@ -76,6 +77,7 @@ def load_settings(config_path: Path, output_override: Path | None = None) -> dic
         "ff_tags": parse_tags(section.get("ff_tags"), {"all_ff"}),
         "model_tags": parse_tags(section.get("model_tags", "regression"), {"regression", "classification"}),
         "resample_tags": parse_tags(section.get("resample_tags"), {"all_resample"}),
+        "targets": parse_list(section.get("targets")) or [],
     }
     if settings["cv_times"] < 2:
         raise ValueError("cv_times must be at least 2")
@@ -91,8 +93,8 @@ def load_tables(feature_file: Path, label_file: Path, selected_targets: list[str
     except ImportError as exc:
         raise RuntimeError("PsyTrainer requires pandas and numpy") from exc
 
-    features = pd.read_csv(feature_file, index_col=0)
-    labels = pd.read_csv(label_file, index_col=0)
+    features = read_table(feature_file)
+    labels = read_table(label_file)
     if features.empty or labels.empty:
         raise ValueError("feature and label CSV files must not be empty")
     if features.index.has_duplicates or labels.index.has_duplicates:
@@ -216,7 +218,8 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         settings = load_settings(args.config, args.output_dir)
-        result = dry_run(settings, args.target) if args.dry_run else train(settings, args.target)
+        targets = args.target or settings["targets"]
+        result = dry_run(settings, targets) if args.dry_run else train(settings, targets)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except Exception as exc:

@@ -40,6 +40,8 @@ jobs:
           assert runtime['ready']
           subprocess.run([runtime['python'], '-m', 'unittest', 'discover', '-s', 'tests', '-v'], check=True)
           subprocess.run([runtime['python'], 'tests/smoke_runtime.py'], check=True)
+          subprocess.run([runtime['python'], 'tests/smoke_agent.py'], check=True)
+          subprocess.run([runtime['python'], 'tests/smoke_pipeline.py'], check=True)
 
   released-skill:
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
@@ -89,3 +91,7 @@ jobs:
           subprocess.run([runtime['python'], '-m', 'unittest', 'discover', '-s', 'tests', '-v'],
                          cwd=root, env=env, check=True)
           subprocess.run([runtime['python'], 'tests/smoke_runtime.py'], cwd=root, env=env, check=True)
+          if (root / 'tests/smoke_agent.py').exists():
+              subprocess.run([runtime['python'], 'tests/smoke_agent.py'], cwd=root, env=env, check=True)
+          if (root / 'tests/smoke_pipeline.py').exists():
+              subprocess.run([runtime['python'], 'tests/smoke_pipeline.py'], cwd=root, env=env, check=True)

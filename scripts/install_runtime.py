@@ -228,7 +228,7 @@ def install_requirements(py: Path, wheel: Path, wheelhouse: Path | None = None) 
 def verify(py: Path) -> dict[str, object]:
     code = (
         "import importlib, json\n"
-        "mods = ['pandas', 'numpy', 'joblib', 'ccpl_training_models']\n"
+        "mods = ['pandas', 'numpy', 'joblib', 'ccpl_training_models', 'sklearn', 'imblearn', 'matplotlib', 'docx']\n"
         "status = {}\n"
         "for m in mods:\n"
         "    importlib.import_module(m)\n"
@@ -241,7 +241,7 @@ def verify(py: Path) -> dict[str, object]:
     out = subprocess.check_output([str(py), "-c", code], text=True).strip()
     status = json.loads(out.splitlines()[-1])
     print("import probe:", status, flush=True)
-    for name in ("pandas", "numpy", "joblib", "ccpl_training_models"):
+    for name in ("pandas", "numpy", "joblib", "ccpl_training_models", "sklearn", "imblearn", "matplotlib", "docx"):
         if not status.get(name):
             raise SystemExit(f"required module missing after install: {name}")
     return status
