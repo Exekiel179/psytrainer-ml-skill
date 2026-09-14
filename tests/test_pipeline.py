@@ -53,7 +53,7 @@ class PipelineTests(unittest.TestCase):
             root = Path(temp)
             args, x, y, _ = self.data(root)
             args.impute = "median"
-            args.model = ["linear"]
+            args.model = ["ModelLRRegressor"]
             x.loc["000", "a"] = np.nan
             x.to_csv(args.features)
             seen = []
@@ -111,24 +111,40 @@ class PipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             args, x, y, _ = self.data(root)
-            args.metric, args.model = "r2", ["dummy", "linear"]
+            args.metric, args.model = "r2", ["ModelRandomForestRegressor", "ModelLRRegressor"]
             x.index = ["test" + i for i in x.index]
             y.index = x.index
             args.test_features, args.test_labels = root / "tx.csv", root / "ty.csv"
             x.to_csv(args.test_features)
             y.to_frame().to_csv(args.test_labels)
-            factory = lambda tag, *_: DummyRegressor() if tag == "dummy" else LinearRegression()
+            factory = lambda tag, *_: DummyRegressor() if tag == "ModelRandomForestRegressor" else LinearRegression()
             with patch.object(runner, "estimator", side_effect=factory), patch("pipeline_report.generate_report"):
                 first = runner.run(args)
                 args.output_dir = root / "out2"
                 (y * -100).to_frame().to_csv(args.test_labels)
                 second = runner.run(args)
-            self.assertEqual(first["selected_model"], "linear")
-            self.assertEqual(second["selected_model"], "linear")
+            self.assertEqual(first["selected_model"], "ModelLRRegressor")
+            self.assertEqual(second["selected_model"], "ModelLRRegressor")
             one = json.loads(Path(first["summary"]).read_text())
             two = json.loads(Path(second["summary"]).read_text())
             self.assertEqual(one["comparison"], two["comparison"])
             self.assertNotEqual(one["test_metrics"], two["test_metrics"])
+
+    def test_explicit_model_parameters_survive_training_and_serialization(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            args, _, _, _ = self.data(root)
+            args.model = ["ModelRandomForestRegressor"]
+            args.model_params = root / "params.json"
+            args.model_params.write_text(json.dumps({args.model[0]: {"n_estimators": 7, "max_depth": 2}}))
+            with patch("pipeline_report.generate_report"):
+                result = runner.run(args)
+            saved = joblib.load(result["model"])["pipeline"].named_steps["model"]
+            self.assertEqual(saved.n_estimators, 7)
+            self.assertEqual(saved.max_depth, 2)
+            summary = json.loads(Path(result["summary"]).read_text())
+            self.assertIn("model_params", summary["inputs"])
+            self.assertEqual(summary["model_parameters"][args.model[0]]["max_depth"], 2)
 
     def test_missing_class_and_invalid_parameters_rejected(self):
         with tempfile.TemporaryDirectory() as temp:

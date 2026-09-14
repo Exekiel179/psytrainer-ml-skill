@@ -1,10 +1,11 @@
 # Pipeline analyses
 
-Use the interpreter recorded in `runtime.json`. The new runner extracts an
-unfitted sklearn-compatible estimator from the bundled wheel's model registry.
-It owns all splitting, preprocessing, fitting and scoring; it does not call the
-vendor Trainer, its pre-CV filters, resamplers or scorer implementation.
-Default estimator parameters are used, without the vendor's parameter grids.
+Use the interpreter recorded in `runtime.json` (CPython 3.12-3.14). The runner
+uses `scripts/model_registry.py` to construct the same 21 standard estimators
+directly from their libraries, without importing or installing PsyTrainer.
+It owns all splitting, preprocessing, fitting and scoring. Defaults match the
+previous Pipeline, without the vendor's parameter grids. Explicit parameters
+use `--model-params FILE.json`; see [migration.md](migration.md).
 
 ## Commands
 

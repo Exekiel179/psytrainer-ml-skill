@@ -4,11 +4,12 @@
 Cross-platform (macOS / Linux / Windows):
   - Creates a local .venv under the skill root
   - Installs requirements.txt
-  - Installs the bundled PsyTrainer wheel and all transitive dependencies
+  - Installs the complete local Pipeline runtime on CPython 3.12-3.14
+  - Optionally installs PsyTrainer in a separate .venv-legacy
   - Writes runtime.json so task runs use the install-time interpreter (no mid-task pip)
 
 Windows notes:
-  - Selects the Python version declared by the wheel
+  - Legacy mode selects the Python version declared by the wheel
   - venv interpreter is .venv\\Scripts\\python.exe
   - Wheel globs are expanded in Python (cmd.exe does not expand *)
 """
@@ -16,6 +17,7 @@ Windows notes:
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -35,6 +37,7 @@ RUNTIME_JSON = ROOT / "runtime.json"
 IS_WINDOWS = os.name == "nt"
 BUNDLED_WHEEL = ROOT / "vendor" / "PsyTrainer-0.2.0-cp314-none-any.whl"
 BUNDLED_SHA256 = "3e999045342b82cf25cb453e61a185530b553e4b9d439d2c5f5964fc5e55c357"
+SUPPORTED_PYTHONS = ((3, 12), (3, 13), (3, 14))
 
 
 def run(cmd: list[str], *, env: dict[str, str] | None = None) -> None:
@@ -46,7 +49,7 @@ def run(cmd: list[str], *, env: dict[str, str] | None = None) -> None:
 def python_version(cmd: list[str]) -> tuple[int, int] | None:
     try:
         out = subprocess.check_output(
-            [*cmd, "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')"],
+            [*cmd, "-c", "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}' if sys.implementation.name == 'cpython' else 'unsupported')"],
             text=True,
             stderr=subprocess.DEVNULL,
         ).strip()
@@ -58,45 +61,51 @@ def python_version(cmd: list[str]) -> tuple[int, int] | None:
     return int(match.group(1)), int(match.group(2))
 
 
-def resolve_base_python(preferred: str | None, required: tuple[int, int]) -> list[str]:
+def resolve_base_python(preferred: str | None, required: tuple[int, int] | None = None) -> list[str]:
     """Return an argv prefix that launches a matching base interpreter."""
+    allowed = (required,) if required else SUPPORTED_PYTHONS
+    requirement = f"{required[0]}.{required[1]} required by wheel" if required else "3.12-3.14 required for Pipeline"
     if preferred:
         # Allow "py -3.14" as a single quoted string, or a bare path/name.
         parts = preferred.split() if preferred.lower().startswith("py ") else [preferred]
         if len(parts) == 1:
             resolved = shutil.which(parts[0]) or parts[0]
             parts = [resolved]
-        if python_version(parts) != required:
-            raise SystemExit(f"Python {required[0]}.{required[1]} required by wheel: {preferred}")
+        if python_version(parts) not in allowed:
+            raise SystemExit(f"CPython {requirement}: {preferred}")
         return parts
 
-    version_name = f"{required[0]}.{required[1]}"
-    candidates: list[list[str]] = [[getattr(sys, "_base_executable", sys.executable)]]
+    version_names = [f"{major}.{minor}" for major, minor in allowed]
+    candidates: list[list[str]] = []
+    if venv_python().is_file():
+        candidates.append([str(venv_python())])
+    candidates.append([getattr(sys, "_base_executable", sys.executable)])
     if IS_WINDOWS:
-        candidates.append(["py", f"-{version_name}"])
-    for name in (f"python{version_name}", "python3", "python"):
+        candidates.extend([["py", f"-{version}"] for version in version_names])
+    for name in (*[f"python{version}" for version in version_names], "python3", "python"):
         found = shutil.which(name)
         if found:
             candidates.append([found])
     if shutil.which("uv"):
-        try:
-            found = subprocess.check_output(
-                ["uv", "python", "find", "--no-python-downloads", version_name],
-                text=True, stderr=subprocess.DEVNULL,
-            ).strip()
-            candidates.append([found])
-        except subprocess.CalledProcessError:
-            pass
+        for version_name in version_names:
+            try:
+                found = subprocess.check_output(
+                    ["uv", "python", "find", "--no-python-downloads", version_name],
+                    text=True, stderr=subprocess.DEVNULL,
+                ).strip()
+                candidates.append([found])
+            except subprocess.CalledProcessError:
+                pass
 
     scored: list[tuple[tuple[int, int], list[str]]] = []
     for cmd in candidates:
         version = python_version(cmd)
-        if version == required:
+        if version in allowed:
             scored.append((version, cmd))
     if not scored:
         raise SystemExit(
-            f"Python {version_name} required by the PsyTrainer wheel. "
-            f"Install it from python.org or run: uv python install {version_name}"
+            f"CPython {requirement}. "
+            f"Install it from python.org or run: uv python install {version_names[0]}"
         )
     best_version, best_cmd = scored[0]
     print(f"base python: {' '.join(best_cmd)} ({best_version[0]}.{best_version[1]})", flush=True)
@@ -116,6 +125,10 @@ def venv_pip() -> Path:
 
 
 def ensure_venv(base_cmd: list[str], *, recreate: bool) -> Path:
+    # Resolve a venv launcher to its base before deleting that venv on recreation.
+    if recreate and VENV_DIR.exists():
+        base = subprocess.check_output([*base_cmd, "-c", "import sys; print(sys._base_executable)"], text=True).strip()
+        base_cmd = [base]
     if VENV_DIR.exists() and not recreate:
         if python_version([str(venv_python())]) != python_version(base_cmd):
             raise SystemExit("existing .venv uses a different Python; re-run with --recreate")
@@ -216,32 +229,45 @@ def wheel_python(wheel: Path) -> tuple[int, int]:
         raise SystemExit(f"invalid PsyTrainer wheel: {exc}") from exc
 
 
-def install_requirements(py: Path, wheel: Path, wheelhouse: Path | None = None) -> None:
+def install_requirements(py: Path, wheel: Path | None = None, wheelhouse: Path | None = None) -> None:
     if not REQUIREMENTS.is_file():
         raise SystemExit(f"missing {REQUIREMENTS}")
     options = ["--no-index", "--find-links", str(wheelhouse)] if wheelhouse else []
     # Resolve wrapper and vendor requirements together so neither overwrites the other.
-    run([str(py), "-m", "pip", "install", *options, "-r", str(REQUIREMENTS), str(wheel)])
+    run([str(py), "-m", "pip", "install", *options, "-r", str(REQUIREMENTS), *([str(wheel)] if wheel else [])])
     run([str(py), "-m", "pip", "check"])
 
 
-def verify(py: Path) -> dict[str, object]:
+def verify(py: Path, *, legacy: bool = False) -> dict[str, object]:
+    modules = ["pandas", "numpy", "scipy", "joblib", "sklearn", "imblearn", "matplotlib", "docx",
+               "lightgbm", "xgboost", "catboost"]
+    if legacy:
+        modules.append("ccpl_training_models")
     code = (
-        "import importlib, json\n"
-        "mods = ['pandas', 'numpy', 'joblib', 'ccpl_training_models', 'sklearn', 'imblearn', 'matplotlib', 'docx']\n"
+        "import importlib, json, sys\n"
+        f"sys.path.insert(0, {str(ROOT / 'scripts')!r})\n"
+        f"mods = {modules!r}\n"
         "status = {}\n"
         "for m in mods:\n"
         "    importlib.import_module(m)\n"
         "    status[m] = True\n"
-        "from ccpl_training_models.trainer import Trainer\n"
-        "trainer = Trainer('general')\n"
-        "assert all(callable(getattr(trainer, m, None)) for m in ['set_base_config', 'set_scoring', 'run'])\n"
-        "print(json.dumps(status))\n"
+        "from model_registry import MODELS, create_estimator\n"
+        "for task, models in MODELS.items():\n"
+        "    for tag in models:\n"
+        "        model = create_estimator(tag, task, 42)\n"
+        "        assert callable(model.fit) and callable(model.predict)\n"
     )
+    if legacy:
+        code += (
+            "from ccpl_training_models.trainer import Trainer\n"
+            "trainer = Trainer('general')\n"
+            "assert all(callable(getattr(trainer, m, None)) for m in ['set_base_config', 'set_scoring', 'run'])\n"
+        )
+    code += "print(json.dumps(status))\n"
     out = subprocess.check_output([str(py), "-c", code], text=True).strip()
     status = json.loads(out.splitlines()[-1])
     print("import probe:", status, flush=True)
-    for name in ("pandas", "numpy", "joblib", "ccpl_training_models", "sklearn", "imblearn", "matplotlib", "docx"):
+    for name in modules:
         if not status.get(name):
             raise SystemExit(f"required module missing after install: {name}")
     return status
@@ -249,7 +275,9 @@ def verify(py: Path) -> dict[str, object]:
 
 def write_runtime(py: Path, status: dict[str, object], wheel: str | None, base_cmd: list[str]) -> None:
     payload = {
-        "schemaVersion": "psytrainer-ml/runtime/v1",
+        "schemaVersion": "psytrainer-ml/runtime/v2",
+        "profile": "legacy" if wheel else "pipeline",
+        "capabilities": {"pipeline": True, "legacy": bool(wheel)},
         "ready": True,
         "platform": os.name,
         "python": str(py.absolute()),
@@ -266,7 +294,19 @@ def write_runtime(py: Path, status: dict[str, object], wheel: str | None, base_c
     print(f"wrote {RUNTIME_JSON}", flush=True)
     if IS_WINDOWS:
         print(f"Windows interpreter: {py}", flush=True)
-        print("Task runs should use runtime.json python (Scripts\\python.exe).", flush=True)
+        print(f"Task runs should use {RUNTIME_JSON.name} python (Scripts\\python.exe).", flush=True)
+
+
+@contextmanager
+def runtime_location(legacy: bool):
+    global VENV_DIR, RUNTIME_JSON
+    previous = VENV_DIR, RUNTIME_JSON
+    if legacy:
+        VENV_DIR, RUNTIME_JSON = ROOT / ".venv-legacy", ROOT / "runtime-legacy.json"
+    try:
+        yield
+    finally:
+        VENV_DIR, RUNTIME_JSON = previous
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -275,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--python",
-        help='Base Python matching the wheel, e.g. "py -3.14" or python3.14',
+        help='CPython 3.12-3.14 for Pipeline; wheel-matching Python for --legacy',
     )
     parser.add_argument(
         "--wheel",
@@ -292,25 +332,42 @@ def main(argv: list[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--wheelhouse", type=Path, help="Install all dependencies offline from this directory")
+    parser.add_argument("--legacy", action="store_true", help="Install the original INI engine in .venv-legacy (bundled wheel requires CPython 3.14)")
     args = parser.parse_args(argv)
+    if args.wheel or os.environ.get("PSYTRAINER_WHEEL", "").strip():
+        args.legacy = True
+    with runtime_location(args.legacy):
+        return install(args)
+
+
+def install(args) -> int:
 
     # A failed re-install must never leave an old success marker for callers.
     RUNTIME_JSON.unlink(missing_ok=True)
     if args.allow_missing_psytrainer:
         raise SystemExit("--allow-missing-psytrainer is no longer supported: a complete runtime is required")
     wheel_spec = (args.wheel or os.environ.get("PSYTRAINER_WHEEL", "")).strip() or None
-    wheel_path = resolve_wheel(wheel_spec)
-    required = wheel_python(wheel_path)
+    wheel_path = resolve_wheel(wheel_spec) if args.legacy else None
+    required = wheel_python(wheel_path) if wheel_path else None
     wheelhouse = args.wheelhouse
     if wheelhouse is None and (ROOT / "wheelhouse").is_dir():
         wheelhouse = ROOT / "wheelhouse"
     if wheelhouse is not None and not wheelhouse.is_dir():
         raise SystemExit(f"wheelhouse directory not found: {wheelhouse}")
+    manifest = wheelhouse.parent / "bundle.json" if wheelhouse else None
+    if manifest and manifest.is_file():
+        bundle = json.loads(manifest.read_text(encoding="utf-8"))
+        if args.legacy and bundle["profile"] != "legacy":
+            raise SystemExit("this offline bundle contains Pipeline dependencies only; use a --legacy bundle")
+        bundled_python = tuple(bundle["python"])
+        if bundled_python not in SUPPORTED_PYTHONS or (required and required != bundled_python):
+            raise SystemExit("offline bundle Python does not match the requested runtime")
+        required = bundled_python
     base_cmd = resolve_base_python(args.python, required)
     py = ensure_venv(base_cmd, recreate=args.recreate)
     install_requirements(py, wheel_path, wheelhouse)
-    status = verify(py)
-    write_runtime(py, status, str(wheel_path.resolve()), base_cmd)
+    status = verify(py, legacy=args.legacy)
+    write_runtime(py, status, str(wheel_path.resolve()) if wheel_path else None, base_cmd)
     print("psytrainer-ml runtime install complete", flush=True)
     return 0
 

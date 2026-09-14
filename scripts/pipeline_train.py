@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import hashlib
-import importlib.metadata
 import json
 import sys
 from pathlib import Path
@@ -29,6 +28,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 from table_io import read_table
+from model_registry import MODELS, create_estimator, versions
 
 SCORERS = {
     "classification": {"accuracy": "accuracy", "balanced_accuracy": "balanced_accuracy",
@@ -140,19 +140,7 @@ def cv_indices(x, y, meta, args):
 
 
 def estimator(tag, task, seed):
-    from ccpl_training_models.model.model_factory import ModelFactory
-    factory = ModelFactory("general")
-    if tag not in factory.get_all_model_tags(0 if task == "classification" else 1):
-        raise ValueError(f"unknown {task} model: {tag}")
-    model = clone(factory.create_model(tag, {}).model)
-    params = model.get_params(deep=False)
-    updates = {k: seed for k in ("random_state", "random_seed") if k in params}
-    if "n_jobs" in params:
-        updates["n_jobs"] = 1
-    if tag == "ModelLRClassifier":
-        updates["max_iter"] = 2000
-    model.set_params(**updates)
-    return model
+    return create_estimator(tag, task, seed)
 
 
 def make_pipeline(model, args):
@@ -216,6 +204,16 @@ def run(args):
     args.metric = args.metric or ("balanced_accuracy" if args.task == "classification" else "mae")
     if args.metric not in SCORERS[args.task]:
         raise ValueError(f"metric must be one of {list(SCORERS[args.task])}")
+    tags = list(dict.fromkeys(args.model or DEFAULT_MODELS[args.task]))
+    if set(tags) - set(MODELS[args.task]):
+        raise ValueError(f"unknown {args.task} models: {sorted(set(tags) - set(MODELS[args.task]))}")
+    parameters = {}
+    if args.model_params:
+        parameters = json.loads(args.model_params.read_text(encoding="utf-8"))
+        if not isinstance(parameters, dict) or set(parameters) - set(tags):
+            raise ValueError("model-params must map selected model names to parameter objects")
+        if any(not isinstance(value, dict) for value in parameters.values()):
+            raise ValueError("each model-params entry must be a parameter object")
     if bool(args.test_features) != bool(args.test_labels):
         raise ValueError("test-features and test-labels must be supplied together")
     if args.test_metadata and not args.test_features:
@@ -285,7 +283,6 @@ def run(args):
     records, candidates, failures, oof = [], {}, [], []
     scorer = get_scorer(SCORERS[args.task][args.metric])
     direction = -1 if args.metric in ("mae", "rmse") else 1
-    tags = list(dict.fromkeys(args.model or DEFAULT_MODELS[args.task]))
     with (output / "run.log").open("w", encoding="utf-8") as log, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
         baseline = (DummyClassifier(strategy="prior") if args.task == "classification" else
                     DummyRegressor(strategy="median" if args.metric == "mae" else "mean"))
@@ -297,7 +294,9 @@ def run(args):
         pd.DataFrame(baseline_records).to_csv(output / "baseline-cv.csv", index=False)
         for tag in tags:
             try:
-                pipeline = make_pipeline(estimator(tag, args.task, args.seed), args)
+                model = (create_estimator(tag, args.task, args.seed, parameters[tag]) if tag in parameters
+                         else estimator(tag, args.task, args.seed))
+                pipeline = make_pipeline(model, args)
                 local_records, local_oof = [], []
                 for number, (tr, va) in enumerate(folds, 1):
                     fitted = clone(pipeline).fit(train_x.iloc[tr], train_y.iloc[tr])
@@ -364,10 +363,10 @@ def run(args):
                                  "pca": args.pca, "resample": args.resample},
                "importance_repeats": args.repeats, "failures": failures, "warnings": warnings,
                "question": args.question, "language": args.language,
-               "versions": {name: importlib.metadata.version(name) for name in
-                            ("PsyTrainer", "scikit-learn", "imbalanced-learn", "numpy", "pandas", "matplotlib", "python-docx")},
+               "model_backend": "local-registry/v1", "model_parameters": parameters,
+               "versions": versions(),
                "inputs": {name: {"path": str(getattr(args, name).resolve()), "sha256": sha256(getattr(args, name))}
-                          for name in ("features", "labels", "metadata", "test_features", "test_labels", "test_metadata")
+                          for name in ("features", "labels", "metadata", "test_features", "test_labels", "test_metadata", "model_params")
                           if getattr(args, name)},
                "arguments": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
                "estimator_parameters": {k: v if isinstance(v, (str, int, float, bool, type(None))) else repr(v)
@@ -416,6 +415,7 @@ def parser():
     t.add_argument("--gap", type=int, default=0, help="Purge this many distinct time blocks at split boundaries")
     t.add_argument("--seed", type=int, default=42)
     t.add_argument("--model", action="append")
+    t.add_argument("--model-params", type=Path, help="JSON mapping model tags to explicit estimator parameters")
     t.add_argument("--metric")
     t.add_argument("--impute", choices=("none", "median"), default="none")
     t.add_argument("--no-scale", action="store_true")

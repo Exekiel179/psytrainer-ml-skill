@@ -1,4 +1,4 @@
-# Installed together with the bundled PsyTrainer wheel and its dependencies.
+# Complete Pipeline runtime; no PsyTrainer wheel required.
 pandas>=2.0,<3
 numpy>=1.26,<3
 joblib>=1.3,<2
@@ -6,3 +6,7 @@ scikit-learn>=1.6,<2
 imbalanced-learn>=0.13,<1
 matplotlib>=3.9,<4
 python-docx>=1.1,<2
+scipy>=1.12,<2
+lightgbm>=4,<5
+xgboost>=2,<4
+catboost>=1.2,<2

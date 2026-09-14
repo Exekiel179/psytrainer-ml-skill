@@ -36,10 +36,20 @@ def emit(value):
     print(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")))
 
 
-def capabilities():
-    # Query the installed registry rather than maintaining a second algorithm list.
+def capabilities(legacy=False):
+    if not legacy:
+        from model_registry import MODELS
+        from pipeline_train import SCORERS, DEFAULT_MODELS
+        return {"backend": "local-registry/v1", **{task: list(models) for task, models in MODELS.items()},
+                "metrics": {task: list(metrics) for task, metrics in SCORERS.items()},
+                "defaults": DEFAULT_MODELS, "model_parameters": "pipeline_train.py train --model-params FILE.json",
+                "legacy": "Original INI engine: install_runtime.py --legacy; use runtime-legacy.json python"}
+    # Keep original INI capabilities separate from Pipeline scoring and preprocessing.
     with contextlib.redirect_stdout(io.StringIO()):
-        from ccpl_training_models.model.model_factory import ModelFactory
+        try:
+            from ccpl_training_models.model.model_factory import ModelFactory
+        except ImportError as exc:
+            raise RuntimeError("Original INI engine requires scripts/install_runtime.py --legacy; use runtime-legacy.json python") from exc
         from ccpl_training_models.feature.ff_factory import FFFactory
         from ccpl_training_models.sampler.sampler_factory import SamplerFactory
         from ccpl_training_models.util.scoring_utils import SCORINGS_CLASSIFIER, SCORINGS_DEFAULT
@@ -130,7 +140,7 @@ def configure(args):
     profile = inspect_data(args.features, args.labels, args.target, args.task, args.cv)
     if not profile["ready"]:
         return profile, 2
-    catalog = capabilities()
+    catalog = capabilities(legacy=True)
     models = args.model or PRESETS[args.task][args.preset]
     if set(models) - set(catalog[args.task]):
         raise ValueError(f"unknown {args.task} models; use capabilities")
@@ -196,7 +206,7 @@ def execute(args):
         settings = training.load_settings(args.config, args.output_dir)
         targets = args.target or settings.get("targets", [])
         training.dry_run(settings, targets)
-        catalog = capabilities()
+        catalog = capabilities(legacy=True)
         models = settings["model_tags"]
         if isinstance(models, str):
             models = catalog.get(models, [])
@@ -243,11 +253,16 @@ def execute(args):
     output.mkdir(parents=True, exist_ok=True)
     command.extend(["--output-dir", str(output)])
     log = output / "run.log"
+    installed_versions = {}
+    for name in ("PsyTrainer", "numpy", "pandas", "scikit-learn"):
+        try:
+            installed_versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            pass
     provenance = {"operation": args.operation, "python": sys.executable,
                   "config_sha256": digest(args.config), "feature_sha256": digest(settings["feature_file"]),
                   "command": command, "warnings": warnings,
-                  "versions": {name: importlib.metadata.version(name)
-                               for name in ("PsyTrainer", "numpy", "pandas", "scikit-learn")}}
+                  "versions": installed_versions}
     if args.operation == "train":
         provenance["label_sha256"] = digest(settings["label_file"])
         provenance["primary_metric"] = (settings["scoring"] or
@@ -269,7 +284,8 @@ def execute(args):
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="operation", required=True)
-    commands.add_parser("capabilities", help="List installed algorithms, metrics and limits")
+    cap = commands.add_parser("capabilities", help="List Pipeline algorithms and metrics")
+    cap.add_argument("--legacy", action="store_true", help="Query original INI engine instead")
     for name in ("inspect", "configure"):
         sub = commands.add_parser(name)
         sub.add_argument("--features", type=Path, required=True)
@@ -299,7 +315,7 @@ def main(argv=None):
     args = parser().parse_args(argv)
     try:
         if args.operation == "capabilities":
-            value, code = capabilities(), 0
+            value, code = capabilities(legacy=args.legacy), 0
         elif args.operation == "inspect":
             value = inspect_data(args.features, args.labels, args.target, args.task, args.cv)
             code = 0 if value["ready"] else 2

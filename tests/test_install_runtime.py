@@ -78,8 +78,6 @@ class InstallRuntimeTests(unittest.TestCase):
     def test_verification_imports_real_trainer_not_just_package_spec(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            for name in ("pandas", "numpy", "joblib", "sklearn", "imblearn", "matplotlib", "docx"):
-                (root / f"{name}.py").write_text("")
             package = root / "ccpl_training_models"
             package.mkdir()
             (package / "__init__.py").write_text("")
@@ -87,7 +85,7 @@ class InstallRuntimeTests(unittest.TestCase):
             import os
             with patch.dict(os.environ, {"PYTHONPATH": str(root)}):
                 with self.assertRaises(subprocess.CalledProcessError):
-                    install_runtime.verify(Path(sys.executable))
+                    install_runtime.verify(Path(sys.executable), legacy=True)
 
     def test_failed_install_never_publishes_runtime(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -125,7 +123,7 @@ class InstallRuntimeTests(unittest.TestCase):
     def test_complete_install_publishes_ready_runtime(self):
         with tempfile.TemporaryDirectory() as temp:
             runtime = Path(temp) / "runtime.json"
-            status = dict.fromkeys(["pandas", "numpy", "joblib", "ccpl_training_models"], True)
+            status = dict.fromkeys(["pandas", "numpy", "joblib", "sklearn"], True)
             with patch.object(install_runtime, "RUNTIME_JSON", runtime), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
@@ -134,7 +132,45 @@ class InstallRuntimeTests(unittest.TestCase):
                 self.assertEqual(install_runtime.main([]), 0)
             payload = json.loads(runtime.read_text())
             self.assertTrue(payload["ready"])
-            self.assertTrue(payload["imports"]["ccpl_training_models"])
+            self.assertTrue(payload["imports"]["sklearn"])
+            self.assertIsNone(payload["wheel"])
+            self.assertEqual(payload["capabilities"], {"pipeline": True, "legacy": False})
+
+    def test_pipeline_install_never_resolves_a_vendor_wheel(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(install_runtime, "RUNTIME_JSON", Path(temp) / "runtime.json"), \
+                 patch.object(install_runtime, "resolve_wheel", side_effect=AssertionError("vendor required")), \
+                 patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
+                 patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
+                 patch.object(install_runtime, "install_requirements") as install, \
+                 patch.object(install_runtime, "verify", return_value={"sklearn": True}):
+                self.assertEqual(install_runtime.main([]), 0)
+                self.assertIsNone(install.call_args.args[1])
+
+    def test_supported_pipeline_python_versions(self):
+        for version in ((3, 12), (3, 13), (3, 14)):
+            with patch.object(install_runtime, "python_version", return_value=version):
+                self.assertTrue(install_runtime.resolve_base_python("python"))
+        for version in ((3, 11), (3, 15), None):
+            with patch.object(install_runtime, "python_version", return_value=version):
+                with self.assertRaisesRegex(SystemExit, "3.12-3.14"):
+                    install_runtime.resolve_base_python("python")
+
+    def test_legacy_environment_is_isolated_and_profile_specific(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            marker = root / "runtime.json"
+            marker.write_text('{"ready": true}')
+            with patch.object(install_runtime, "ROOT", root), \
+                 patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
+                 patch.object(install_runtime, "ensure_venv", return_value=root / ".venv-legacy/bin/python"), \
+                 patch.object(install_runtime, "install_requirements"), \
+                 patch.object(install_runtime, "verify", return_value={"ccpl_training_models": True}):
+                self.assertEqual(install_runtime.main(["--legacy"]), 0)
+            payload = json.loads((root / "runtime-legacy.json").read_text())
+            self.assertEqual(payload["profile"], "legacy")
+            self.assertTrue(payload["capabilities"]["legacy"])
+            self.assertEqual(marker.read_text(), '{"ready": true}')
 
     def test_resolve_wheel_exact_path(self):
         with tempfile.TemporaryDirectory() as temp:

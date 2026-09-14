@@ -11,9 +11,14 @@ metadata:
 # PsyTrainer ML
 
 Use for requested PsyTrainer work; invoke `/skill:psytrainer-ml` or `$psytrainer-ml`.
-Use `runtime.json` -> `python` as `$PY`; require `ready: true`. Missing runtime:
-follow the installation section of [README.md](README.md) during setup. Download
-the whole Skill including `vendor/`; never bypass missing dependencies.
+Use `runtime.json` -> `python` as `$PY` for the independent Pipeline (CPython
+3.12-3.14); require `ready: true`. Missing runtime:
+follow [README.md](README.md#install-complete-runtime-required) or
+[中文安装说明](README.zh-CN.md#安装) during setup. Keep the whole Skill including
+`vendor/` in the host's skill directory; the wheel is optional for Pipeline.
+Downloading the Skill alone does not install
+the runtime. Run commands from the Skill root using absolute data/output paths
+when the user's project is elsewhere. Never bypass missing dependencies.
 
 Prefer `scripts/pipeline_train.py train --features X.csv --labels Y.csv --target score --task regression --output-dir outputs/run-01` for new analyses. It handles fold-local preprocessing, model selection, held-out evaluation, figures and `report.docx` in one call. Defaults: 20% internal holdout, 5 folds, two base models, Chinese report. Set `--question` when the research question is known.
 
@@ -30,7 +35,14 @@ uncertainty, error patterns, calibration and stability, with source paths.
 Keep test diagnostics separate from development-set improvement experiments.
 `--bootstrap 0` skips interval computation; report regeneration never retrains.
 
-Use `scripts/ml.py` for legacy INI workflows and installed model discovery. It validates inputs and returns compact JSON. Full training
+`scripts/ml.py capabilities` lists the local 21-model registry without PsyTrainer.
+Use `--model-params FILE.json` for explicit Pipeline estimator parameters; read
+[migration.md](references/migration.md) for mapping, defaults and compatibility.
+
+For original INI workflows, install `scripts/install_runtime.py --legacy` and
+use `runtime-legacy.json` -> `python` as `$PY` (separate CPython 3.14 environment).
+An existing environment with a working PsyTrainer installation is also supported.
+`scripts/ml.py` validates inputs and returns compact JSON. Full training
 logs and results stay on disk. Do not read scripts, entire CSVs or all references
 by default. Consult [commands.md](references/commands.md) for options and limits,
 or [configuration.md](references/configuration.md) for custom INI settings.
@@ -39,7 +51,7 @@ or [configuration.md](references/configuration.md) for custom INI settings.
 - Need data diagnosis first: `"$PY" scripts/ml.py inspect --features X.csv --labels Y.csv --task regression`.
 - Run: `"$PY" scripts/ml.py train --config config/run.ini`; use `predict` for a prediction INI.
 - Existing results: `"$PY" scripts/ml.py report outputs/run-01/training-summary.json --top 3`.
-- Need supported algorithms/metrics: `"$PY" scripts/ml.py capabilities`.
+- Need original INI algorithms/metrics: `"$PY" scripts/ml.py capabilities --legacy`.
 
 Ask for task type or target only when ambiguous. Preserve explicit model/metric
 choices. Resolve reported errors before training; never silently impute or recode.

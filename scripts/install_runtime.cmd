@@ -15,7 +15,7 @@ where python >nul 2>&1
 if %ERRORLEVEL%==0 (
   goto run_python
 )
-echo Python not found. Install Python 3.14 from python.org and enable the py launcher.
+echo Python not found. Install CPython 3.12-3.14, or 3.14 for --legacy, and enable the py launcher.
 exit /b 1
 
 :run_py

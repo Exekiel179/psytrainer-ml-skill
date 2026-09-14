@@ -1,6 +1,10 @@
 # Commands
 
-Use the `python` recorded in `runtime.json` as `$PY`. Commands print compact JSON;
+This reference describes the original INI engine. Install with
+`scripts/install_runtime.py --legacy` and use `runtime-legacy.json` -> `python`
+as `$PY`. For the independent Pipeline use [pipeline.md](pipeline.md).
+`ml.py capabilities` lists Pipeline models; `ml.py capabilities --legacy` lists
+the original engine's models and metrics. Commands print compact JSON;
 read only files referenced by the response when more detail is needed.
 
 ## Inspect and Configure
@@ -18,7 +22,7 @@ Feature values must be finite numbers. Classification presets require binary
 
 Defaults: `--preset quick` selects two models; `--preset standard` selects three.
 Use repeatable `--model TAG` for explicit algorithms and `--metric NAME` for the
-primary selection metric; get supported values from `capabilities` only when needed.
+primary selection metric; get supported values from `capabilities --legacy` only when needed.
 `--cv 5` controls fold count; repeat `--target` to select multiple label columns.
 Generated configs remember target selection and use no preprocessing, no
 resampling, no parameter grid search, and no deletion of existing results.
@@ -67,5 +71,6 @@ Rank only within the same target, data and primary metric. Vendor loss scores
 are negated (higher is better). The bundled vendor also negates R2 despite larger
 R2 being better; `ml.py` refuses R2 as the primary selection metric. Secondary R2
 in legacy reports also has reversed sign. No confidence interval is synthesized.
-Grouped/longitudinal validation, fold-contained preprocessing, multiclass scoring,
-external holdout evaluation, SHAP and deep learning require further implementation.
+Grouped/longitudinal validation, fold-contained preprocessing, multiclass scoring
+and external holdout evaluation are provided by the independent Pipeline.
+SHAP and deep learning are not implemented by either runner.

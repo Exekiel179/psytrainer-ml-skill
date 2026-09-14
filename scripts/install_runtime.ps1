@@ -9,7 +9,8 @@ param(
     [string]$Wheel = $env:PSYTRAINER_WHEEL,
     [string]$Python = "",
     [switch]$Recreate,
-    [string]$Wheelhouse = ""
+    [string]$Wheelhouse = "",
+    [switch]$Legacy
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,7 @@ if ($Wheel) { $scriptArgs += @("--wheel", $Wheel) }
 if ($Python) { $scriptArgs += @("--python", $Python) }
 if ($Recreate) { $scriptArgs += "--recreate" }
 if ($Wheelhouse) { $scriptArgs += @("--wheelhouse", $Wheelhouse) }
+if ($Legacy) { $scriptArgs += "--legacy" }
 
 if (Get-Command py -ErrorAction SilentlyContinue) {
     Write-Host "+ py -3 $($scriptArgs -join ' ')"
@@ -33,5 +35,5 @@ if (Get-Command python -ErrorAction SilentlyContinue) {
     exit $LASTEXITCODE
 }
 
-Write-Error "Python not found. Install Python 3.14 from python.org and enable the py launcher."
+Write-Error "Python not found. Install CPython 3.12-3.14 (3.14 for -Legacy) and enable the py launcher."
 exit 1
