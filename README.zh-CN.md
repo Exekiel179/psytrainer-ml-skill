@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-用于表格数据分类、回归和批量预测的 PsyClaw / Codex Skill。大语言模型负责理解任务和调用工具，本地 Python 脚本负责训练、验证、分析、绘图及生成 Word 报告。
+用于表格数据分类、回归和批量预测的 PsyClaw / Claude code /Codex Skill。大语言模型负责理解任务和调用工具，本地 Python 脚本负责训练、验证、分析、绘图及生成 Word 报告。
 
 ## 能做什么
 
@@ -12,22 +12,9 @@
 - 输出 PDF、可编辑 SVG、600 dpi PNG 图表，以及中文或英文的 `report.docx` 和 `report.md`。
 - 保存包含预处理的模型、预测结果、数据划分、指标和来源记录，便于复核。
 
-分析和报告脚本不调用大语言模型 API；数值计算和图表生成不消耗 LLM token。代理只需读取精简摘要，详细数据保留在文件中。图表和报告的设计参考已融入本项目，使用者无需另装 nature 或 academic-paper 系列 Skill。
+图表和报告的设计参考已融入本项目，使用者无需另装报告绘图类 Skill。
 
-## Skill、wheel 和运行环境是什么关系
-
-| 内容 | 作用 | 如何获得 |
-|---|---|---|
-| `SKILL.md` 与参考文档 | 告诉大模型何时使用、怎样调用、如何解释结果 | 随完整 Skill 下载 |
-| `scripts/` | 执行 Pipeline、预测、分析、绘图和报告生成 | 随完整 Skill 下载 |
-| `scripts/model_registry.py` | 本项目维护的 9 个分类、12 个回归模型映射和参数入口 | 随完整 Skill 下载 |
-| `vendor/PsyTrainer-0.2.0-cp314-none-any.whl` | 原 PsyTrainer INI 引擎的可选安装包 | 已随包附带，仅兼容模式安装 |
-| `.venv/` | 新 Pipeline 的完整 Python 运行环境，无需 PsyTrainer | 安装器在本机创建 |
-| `runtime.json` | 记录本机解释器路径和依赖检查结果 | 安装成功后生成 |
-
-**wheel 不是另一个 Skill，也不是训练好的模型。** 新 Pipeline 已将需要的模型封装迁入本项目，直接调用 scikit-learn、LightGBM、XGBoost 和 CatBoost，无需安装 PsyTrainer wheel。原来的模型名称和默认估计器参数保留，数据划分、折内预处理、模型比较、保存预测及报告流程继续使用。
-
-**完整下载 Skill 不等于安装了运行环境。** Skill 包包含全部项目文件和用于兼容模式的 wheel，首次安装仍需联网下载第三方 Python 依赖。包内不包含 Python 解释器和系统共享库。
+**完整下载 Skill 不等于安装了运行环境。** Skill 包包含全部项目文件，首次安装仍需联网下载第三方 Python 依赖。包内不包含 Python 解释器和系统共享库。
 
 ## 让大语言模型帮助安装
 
@@ -115,7 +102,7 @@ Codex 会自动发现技能；若未出现，重启 Codex 后再检查。可用 
 
 ```text
 使用 psytrainer-ml，读取我的 features.csv 和 labels.csv，预测 score，做回归分析。
-使用新 Pipeline，输出独立留出评估、诊断图表和中文 Word 报告。
+输出独立留出评估、诊断图表和中文 Word 报告。
 ```
 
 每个 CSV 的第一列必须是唯一的样本 ID；特征和标签的 ID 必须一致，标签会按 ID 对齐。特征必须是数值，目标不能缺失。一次运行一个目标。分组或时间元数据单独提供，不能误当作预测特征。
