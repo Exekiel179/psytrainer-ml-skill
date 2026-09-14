@@ -3,8 +3,10 @@
 The Skill preserves the workflow: align CSVs by sample ID, select algorithms and
 parameters, compare candidates, refit, save models, predict, and interpret results.
 The independent Pipeline's validation, fold-local preprocessing and report
-implementation are retained. Only estimator construction has moved from
-PsyTrainer's factory into `scripts/model_registry.py`.
+implementation are retained. Estimator construction lives in
+`scripts/model_registry.py`; preprocessing, search and resume now live in the
+local Pipeline. The itemized [wheel audit](wheel-audit.md) records migration
+decisions, intentionally retired behavior and validation evidence.
 
 ## Model mapping
 
@@ -55,11 +57,14 @@ recorded with the file hash and fitted estimator parameters in `summary.json`.
 Invalid model names or JSON structure fail; invalid estimator settings are
 reported as model failures, and an all-model failure stops training.
 
-These are fixed estimator settings, not a search grid. The original INI engine's
-`is_use_model_params`, domain grids, four feature filters and seven resamplers
-remain accessible through that engine. They are not silently reinterpreted as
-Pipeline parameters. Pipeline preprocessing is controlled by its own explicit
-flags; it continues to fit learned transforms only within training folds.
+These are fixed estimator settings. Parameter search uses `--search grid|random`
+and optional `--search-space FILE.json`; without a file it uses small maintained
+grids. All four original preprocessing families and seven resamplers have local
+equivalents. Domain model lists use `--preset audio|face|gait|text`; preprocessing
+is explicit. See [Pipeline options](pipeline.md#migrated-training-options).
+The old exhaustive grids are intentionally not copied: they contain invalid
+combinations and overly large searches. Conditional JSON spaces preserve custom
+search capability. Numerical equivalence to the old pre-CV pipeline is not claimed.
 
 ## Installation and existing work
 
@@ -81,6 +86,8 @@ claim identical scores: CV design, preprocessing and scoring differ intentionall
 
 Saved Pipeline v1 joblib dictionaries retain the same schema and standard-library
 estimator classes, so the migration introduces no custom pickle class dependency.
+Newly saved F-threshold/forward Pipelines also require the local
+`scripts/pipeline_options.py` module; use this Skill's prediction CLI.
 Original `model.pkl`, feature selections and PCA files continue through the
 original prediction CLI. Keep the original Python and library versions when
 loading historical models; cross-version pickle compatibility is not guaranteed.

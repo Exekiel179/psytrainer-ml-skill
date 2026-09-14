@@ -11,6 +11,9 @@
 - 比较候选模型，分析训练与验证差距、相对基线的收益、误差结构、校准、特征依赖、输入分布变化和分组/时间稳定性。
 - 输出 PDF、可编辑 SVG、600 dpi PNG 图表，以及中文或英文的 `report.docx` 和 `report.md`。
 - 保存包含预处理的模型、预测结果、数据划分、指标和来源记录，便于复核。
+- 支持有预算的网格/随机搜索、逐步前向与 F 阈值筛选、七种分类重采样，以及校验数据和配置后续跑。
+
+旧 wheel 的功能已逐项审计，迁移入口、测试与弃用原因见[功能迁移审计](references/wheel-audit.md)。原有模型与领域模型集合保留，无效默认网格和可能泄漏验证信息的处理方式已替换。
 
 图表和报告的设计参考已融入本项目，使用者无需另装报告绘图类 Skill。
 
@@ -128,6 +131,12 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 | 指定研究问题 | `--question "基线指标能否预测后续评分？"` |
 | 英文报告 | `--language en` |
 | 配置算法参数 | `--model-params config/models.json`，内容按模型名称映射到参数对象 |
+| 搜索参数或比较预处理组合 | `--search grid` 或 `--search random --max-candidates 12`；自定义 `--search-space config/search.json` |
+| 逐步前向筛选 | `--selection forward --select-k 3`，内部验证保持分组/时间约束 |
+| F 值筛选 / 归一化 | `--selection f-threshold --f-threshold 5` / `--scaler minmax` |
+| 领域模型 / 全部模型 | `--preset audio`、`face`、`gait`、`text` 或 `all` |
+| 继续相同的中断任务 | 原命令加 `--resume`，复用已完成的 CV 折 |
+| 保存所有成功候选模型 | `--save-candidates`，每个模型保存其最佳配置 |
 
 分组/时间设计的外部测试集还需要相应元数据。完整参数、数据约束和统计边界见 [Pipeline 参考](references/pipeline.md)。
 

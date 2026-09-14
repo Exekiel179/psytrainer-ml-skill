@@ -40,9 +40,14 @@ def capabilities(legacy=False):
     if not legacy:
         from model_registry import MODELS
         from pipeline_train import SCORERS, DEFAULT_MODELS
+        from pipeline_options import SAMPLERS, DOMAIN_MODELS
         return {"backend": "local-registry/v1", **{task: list(models) for task, models in MODELS.items()},
                 "metrics": {task: list(metrics) for task, metrics in SCORERS.items()},
                 "defaults": DEFAULT_MODELS, "model_parameters": "pipeline_train.py train --model-params FILE.json",
+                "search": ["grid", "random"], "search_space": "--search-space FILE.json",
+                "feature_filters": ["minmax", "kbest", "f-threshold", "forward", "pca"],
+                "resamplers": list(SAMPLERS), "domain_presets": DOMAIN_MODELS,
+                "resume": "--resume reuses CV folds with identical data/config/code/versions",
                 "legacy": "Original INI engine: install_runtime.py --legacy; use runtime-legacy.json python"}
     # Keep original INI capabilities separate from Pipeline scoring and preprocessing.
     with contextlib.redirect_stdout(io.StringIO()):

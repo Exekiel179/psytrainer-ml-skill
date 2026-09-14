@@ -41,8 +41,12 @@ def diagnostic_plots(directory, summary, add):
         ax.scatter(rows.train_score, np.full(len(rows), i - .12), color=GRAY, s=16, label="Training" if i == 0 else None)
         ax.scatter(rows.score, np.full(len(rows), i + .12), color=BLUE, s=20, label="Validation" if i == 0 else None)
         gains = direction * (rows.score.to_numpy() - base_cv.loc[rows.fold, "score"].to_numpy())
-        bx.scatter(gains, np.full(len(gains), i) + np.linspace(-.1, .1, len(gains)), color=GRAY, s=15)
-        bx.errorbar(gains.mean(), i, xerr=gains.std(ddof=1), fmt="o", color=GREEN, capsize=3)
+        if np.isfinite(gains).all():
+            bx.scatter(gains, np.full(len(gains), i) + np.linspace(-.1, .1, len(gains)), color=GRAY, s=15)
+            bx.errorbar(gains.mean(), i, xerr=gains.std(ddof=1), fmt="o", color=GREEN, capsize=3)
+        else:
+            bx.text(.5, i, "Undefined for constant baseline", transform=bx.get_yaxis_transform(),
+                    ha="center", fontsize=8)
     labels = [textwrap.fill(name.removeprefix("Model"), 19) for name in names]
     for axis in (ax, bx):
         axis.set_yticks(range(len(names)), labels if axis is ax else [])
@@ -56,7 +60,7 @@ def diagnostic_plots(directory, summary, add):
     add(fig, "model-validation", (f"模型验证（{summary['cv_folds']} 折，共享划分）。a，每折训练与验证得分的连线用于检查泛化差距。b，同一验证折内相对简单基线的有向增益，正值更好；点为折，绿色为均值±样本标准差，非置信区间。基线在对应训练折拟合，不参与候选模型选择。" if zh else
         f"Model validation ({summary['cv_folds']} shared folds). a, paired training/validation scores. b, oriented within-fold gain over a training-fold-fitted dummy baseline; positive is better. Gray: folds; green: mean and sample SD, not CI. The dummy does not participate in candidate selection."), "cv-scores.csv; baseline-cv.csv")
 
-    primary = "f1_macro" if summary["metric"] == "f1" else summary["metric"]
+    primary = {"f1": "f1_macro", "precision": "precision_macro", "recall": "recall_macro"}.get(summary["metric"], summary["metric"])
     row = metrics.loc[primary]
     fig, ax = plt.subplots(figsize=(7.09, 2.7), layout="constrained")
     ax.scatter([row.estimate, row.baseline], [1, 0], c=[BLUE, GRAY], s=35)

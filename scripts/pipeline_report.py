@@ -61,6 +61,24 @@ def plots(directory, summary):
         save_figure(fig, figures, name)
         captions.append({"name": name, "caption": caption, "source": source})
 
+    if summary.get("search", {}).get("method", "none") != "none":
+        trials = json.loads((directory / "search-results.json").read_text())
+        # Paginate models to keep labels readable; all candidate values stay in JSON.
+        names = list(dict.fromkeys(row["model"] for row in trials))
+        for page in range(0, len(names), 3):
+            fig, axes = plt.subplots(len(names[page:page + 3]), 1,
+                figsize=(7.09, 2.0 * len(names[page:page + 3])), squeeze=False, layout="constrained")
+            for ax, name in zip(axes.ravel(), names[page:page + 3]):
+                valid = [row for row in trials if row["model"] == name and row["status"] == "completed"]
+                ax.scatter([row["candidate"] for row in valid], [row["mean"] for row in valid], color=BLUE, s=20)
+                failed = sum(row["model"] == name and row["status"] == "failed" for row in trials)
+                ax.set(title=f"{name.removeprefix('Model')} (failed: {failed})",
+                       xlabel="Candidate index", ylabel=summary["metric"])
+            add(fig, f"parameter-search-{page // 3 + 1}",
+                ("参数搜索：每点为一个候选参数配置的平均验证得分，候选编号对应源文件。搜索使用开发集，分数用于选择而非无偏性能估计；失败数单独列出。" if zh else
+                 "Parameter search: each point is mean development CV score for a candidate indexed in the source file. Scores are for selection, not unbiased performance estimates; failed candidates are counted separately."),
+                "search-results.json")
+
     if (directory / "baseline-cv.csv").exists():
         from pipeline_diagnostics_plots import diagnostic_plots
         diagnostic_plots(directory, summary, add)
@@ -231,8 +249,18 @@ def generate_report(directory):
                "group": ("按组隔离开发集与测试集，并采用 GroupKFold；组标识仅用于划分。", "Groups are disjoint between development and test; GroupKFold is used for selection."),
                "time": ("按唯一时间值分块，采用前向验证；同一时间值不跨边界，训练严格早于验证和测试。", "Forward validation over unique time blocks; equal timestamps stay together and training precedes validation/test.")}
     paragraph(designs[s["split"]][0 if zh else 1])
-    paragraph((f"测试集来源：{'外部提供的独立数据' if s['external_test'] else '在模型选择前划出的内部留出集'}。随机种子={s['seed']}；时间间隔={s['gap']} 个时间块。预处理配置：{json.dumps(s['preprocessing'], ensure_ascii=False)}。所有有学习过程的预处理及重采样均在每个训练折内拟合；测试集不参与拟合和模型选择。候选模型使用基础参数，不执行超参数搜索。"
-               if zh else f"Test source: {'externally supplied data' if s['external_test'] else 'internal holdout reserved before selection'}. Seed={s['seed']}; gap={s['gap']} time blocks. Preprocessing: {json.dumps(s['preprocessing'])}. All learned preprocessing and resampling fit only within each training fold. Test data is excluded from fitting and selection. Candidates use base parameters without hyperparameter search."))
+    paragraph((f"测试集来源：{'外部提供的独立数据' if s['external_test'] else '在模型选择前划出的内部留出集'}。随机种子={s['seed']}；时间间隔={s['gap']} 个时间块。预处理配置：{json.dumps(s['preprocessing'], ensure_ascii=False)}。所有有学习过程的预处理及重采样均在每个训练折内拟合；测试集不参与拟合和模型选择。"
+               if zh else f"Test source: {'externally supplied data' if s['external_test'] else 'internal holdout reserved before selection'}. Seed={s['seed']}; gap={s['gap']} time blocks. Preprocessing: {json.dumps(s['preprocessing'])}. All learned preprocessing and resampling fit only within each training fold. Test data is excluded from fitting and selection."))
+    search = s.get("search", {"method": "none"})
+    if search["method"] == "none":
+        paragraph("候选模型使用默认或显式指定的固定参数，不执行参数搜索。" if zh else
+                  "Candidates use default or explicitly configured fixed parameters; no parameter search is performed.")
+    else:
+        paragraph((f"参数搜索方式={search['method']}；共评估 {search['evaluated_candidates']} 个候选，其中 {search['failed_candidates']} 个失败。最佳搜索参数：{json.dumps(search['selected_parameters'], ensure_ascii=False)}。所有候选使用相同开发集划分，预处理在每折重新拟合。CV 得分同时用于参数和模型选择，因此不是无偏估计；最终性能依据留出测试集。每折明细见 checkpoints/，搜索明细见 search-results.json。" if zh else
+                   f"Search method={search['method']}; {search['evaluated_candidates']} candidates evaluated, {search['failed_candidates']} failed. Selected search parameters: {json.dumps(search['selected_parameters'])}. Candidates share development folds and refit preprocessing in each fold. CV scores serve both parameter and model selection and are not unbiased estimates; final performance uses the holdout. Fold details: checkpoints/; search details: search-results.json."))
+    if s["preprocessing"].get("selection") == "forward":
+        paragraph("逐步前向筛选仅接收当前训练分区，内部交叉验证采用相同划分设计，并在内部训练折重新拟合预处理及重采样。" if zh else
+                  "Forward selection sees only the current training partition; its internal CV follows the same split design and refits preprocessing and resampling within internal training folds.")
     heading("独立测试结果" if zh else "Held-Out Results")
     table = doc.add_table(rows=1, cols=2)
     table.style = "Light Shading Accent 1"
@@ -313,6 +341,11 @@ def generate_report(directory):
         table.rows[0]._tr.get_or_add_trPr().append(repeat)
         for row in table.rows:
             row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
+        if len(table.rows) <= 12:
+            for row in table.rows[:-1]:
+                for cell in row.cells:
+                    for paragraph in cell.paragraphs:
+                        paragraph.paragraph_format.keep_with_next = True
     # Direct formatting prevents table/theme fonts from overriding CJK glyphs.
     paragraphs = list(doc.paragraphs) + [p for table in doc.tables for row in table.rows
                                        for cell in row.cells for p in cell.paragraphs]

@@ -8,7 +8,8 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import (accuracy_score, average_precision_score, confusion_matrix,
                              f1_score, mean_absolute_error, mean_squared_error,
-                             precision_recall_fscore_support, r2_score, roc_auc_score)
+                             precision_recall_fscore_support, precision_score, recall_score, r2_score, roc_auc_score)
+from pipeline_options import pearson_score
 
 
 def feature_shift(development, test):
@@ -31,7 +32,10 @@ def metric_values(frame, task, classes):
     y, p = frame.observed.to_numpy(), frame.predicted.to_numpy()
     if task == "regression":
         y, p = y.astype(float), p.astype(float)
+        correlation = pearson_score(y, p)
         return {"mae": float(mean_absolute_error(y, p)),
+                "mse": float(mean_squared_error(y, p)),
+                "pearson_r": correlation if np.isfinite(correlation) else None,
                 "rmse": float(np.sqrt(mean_squared_error(y, p))),
                 "r2": float(r2_score(y, p)) if len(y) > 1 and np.ptp(y) > 0 else None,
                 "bias": float(np.mean(y - p))}
@@ -39,7 +43,9 @@ def metric_values(frame, task, classes):
     support = matrix.sum(axis=1)
     result = {"accuracy": float(accuracy_score(y, p)),
               "balanced_accuracy": float(np.mean(matrix.diagonal() / support)) if np.all(support) else None,
-              "f1_macro": float(f1_score(y, p, labels=classes, average="macro", zero_division=0))}
+              "f1_macro": float(f1_score(y, p, labels=classes, average="macro", zero_division=0)),
+              "precision_macro": float(precision_score(y, p, labels=classes, average="macro", zero_division=0)),
+              "recall_macro": float(recall_score(y, p, labels=classes, average="macro", zero_division=0))}
     if len(classes) == 2:
         binary = y == classes[1]
         if "positive_score" in frame:
@@ -87,12 +93,12 @@ def uncertainty(pred, baseline, summary, membership):
                     samples[key].append(value)
                     other = base_values.get(key)
                     if other is not None and key != "bias":
-                        gains[key].append((other - value) if key in ("mae", "rmse", "brier") else value - other)
+                        gains[key].append((other - value) if key in ("mae", "mse", "rmse", "brier") else value - other)
     rows = []
     for key, value in point.items():
         base = base_point.get(key)
         gain = None if base is None or value is None or key == "bias" else (
-            base - value if key in ("mae", "rmse", "brier") else value - base)
+            base - value if key in ("mae", "mse", "rmse", "brier") else value - base)
         sufficient = len(samples[key]) >= max(100, .8 * repeats)
         paired_sufficient = len(gains[key]) >= max(100, .8 * repeats)
         lo, hi = np.quantile(samples[key], [.025, .975]) if sufficient else (None, None)
@@ -167,7 +173,7 @@ def analyze(directory, summary):
     def finding(code, zh, en, source):
         findings.append({"code": code, "zh": zh, "en": en, "source": source})
 
-    primary = "f1_macro" if summary["metric"] == "f1" else summary["metric"]
+    primary = {"f1": "f1_macro", "precision": "precision_macro", "recall": "recall_macro"}.get(summary["metric"], summary["metric"])
     result = metrics.set_index("metric").loc[primary]
     if pd.notna(result["gain"]):
         finding("baseline", f"独立测试 {primary}={result.estimate:.4g}，开发集拟合的简单基线={result.baseline:.4g}；有向增益={result.gain:.4g}（正值更好）。" +

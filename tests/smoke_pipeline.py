@@ -41,9 +41,12 @@ def exercise(root):
         extra = [] if split == "random" else ["--metadata", root / "meta.csv", "--group-column" if split == "group" else "--time-column",
                                                "subject" if split == "group" else "time"]
         if split == "group":
-            extra += ["--resample", "random-over"]
+            extra += ["--resample", "smote", "--search", "random", "--max-candidates", 2,
+                      "--metric", "precision"]
         if split == "time":
-            extra += ["--gap", 1]
+            extra += ["--gap", 1, "--selection", "forward", "--metric", "pearson_r"]
+        if split == "random":
+            extra += ["--scaler", "minmax", "--search", "grid", "--metric", "mse"]
         result = command("train", "--features", root / "x.csv", "--labels", root / "y.csv", "--target", target,
                          "--task", task, "--split", split, "--output-dir", out, "--cv", 3, "--repeats", 3,
                          "--impute", "median", "--select-k", 3, "--pca", 2, *extra)
@@ -51,6 +54,11 @@ def exercise(root):
         summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert summary["development_n"] + summary["test_n"] <= len(x)
         assert len(summary["comparison"]) == 2
+        if split != "time":
+            assert summary["search"]["method"] != "none"
+            assert list((out / "figures").glob("parameter-search-*.svg"))
+        else:
+            assert summary["preprocessing"]["selection"] == "forward"
         diagnostics = json.loads((out / "analysis.json").read_text(encoding="utf-8"))
         assert len(diagnostics["findings"]) >= 4
         intervals = pd.read_csv(out / "metric-intervals.csv")

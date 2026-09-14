@@ -15,6 +15,10 @@ optional original PsyTrainer Python library, not a second Skill or a pretrained
 model. The Pipeline now uses a local registry of the same 9 classification and
 12 regression algorithms, calling their libraries directly. It retains model
 names and estimator defaults while owning validation, preprocessing and reporting.
+It also provides bounded grid/random search, forward/F-threshold selection,
+all seven original resampling families, domain model presets and checked CV
+resume. The [itemized wheel audit](references/wheel-audit.md) records migrated
+capabilities, verification and reasons for retiring defective legacy behavior.
 
 Setup has two parts: put the **whole Skill folder** where your host discovers
 skills, then run its runtime installer once. Copying `SKILL.md` alone or enabling
@@ -178,6 +182,12 @@ feature reliance, and group/time stability. Each finding links to numeric source
 data; analysis and report generation use no LLM calls. These diagnostics guide
 development-set experiments and do not automatically tune against test results.
 Existing installations should rerun the installer to add the report dependencies.
+
+Use `--search grid` or `--search random --max-candidates 12` for tuning;
+`--search-space FILE.json` defines model and preprocessing combinations.
+`--selection forward --select-k 3`, `--selection f-threshold`, `--scaler minmax`,
+the seven `--resample` methods, `--preset all|audio|face|gait|text`, `--resume`
+and `--save-candidates` are documented in [migrated training options](references/pipeline.md#migrated-training-options).
 
 ### Legacy INI workflows
 

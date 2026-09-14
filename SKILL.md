@@ -38,6 +38,12 @@ Keep test diagnostics separate from development-set improvement experiments.
 `scripts/ml.py capabilities` lists the local 21-model registry without PsyTrainer.
 Use `--model-params FILE.json` for explicit Pipeline estimator parameters; read
 [migration.md](references/migration.md) for mapping, defaults and compatibility.
+For tuning, use `--search grid|random`, bounded by `--max-candidates`; read
+[pipeline.md](references/pipeline.md#migrated-training-options) for conditional
+search spaces, forward/F-threshold selection, seven resamplers, domain presets
+and `--resume`. Search only development data; searched CV/OOF scores carry
+selection bias. See [wheel-audit.md](references/wheel-audit.md) when auditing
+legacy capability coverage or explaining intentionally retired behavior.
 
 For original INI workflows, install `scripts/install_runtime.py --legacy` and
 use `runtime-legacy.json` -> `python` as `$PY` (separate CPython 3.14 environment).
@@ -61,7 +67,7 @@ Only load trusted local model pickles/joblib files. Summarize sample count, targ
 metric, validation design and failures using actual output; link the report and
 figures instead of reading their full contents into context. Compare scores only
 within a target/metric. The following limits apply to the legacy runner only:
-vendor losses are negated; R2 selection is defective and
-disabled in the new runner. Filtering/resampling before CV can leak information;
+vendor losses are negated; vendor R2 selection is defective and
+disabled in the legacy wrapper (independent Pipeline R2 is supported). Filtering/resampling before CV can leak information;
 random folds do not support grouped or temporal validation. Do not claim held-out
 performance, causal effects, confidence intervals or reproducibility not measured.
