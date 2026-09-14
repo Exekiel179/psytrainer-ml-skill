@@ -27,7 +27,7 @@
 
 **wheel 不是另一个 Skill，也不是训练好的模型。** 新 Pipeline 已将需要的模型封装迁入本项目，直接调用 scikit-learn、LightGBM、XGBoost 和 CatBoost，无需安装 PsyTrainer wheel。原来的模型名称和默认估计器参数保留，数据划分、折内预处理、模型比较、保存预测及报告流程继续使用。
 
-**完整下载 Skill 不等于安装了运行环境。** 普通包包含全部项目文件和核心 wheel，首次安装仍需下载第三方 Python 依赖。离线包额外缓存这些依赖，两者都不包含 Python 解释器和系统共享库。
+**完整下载 Skill 不等于安装了运行环境。** Skill 包包含全部项目文件和用于兼容模式的 wheel，首次安装仍需联网下载第三方 Python 依赖。包内不包含 Python 解释器和系统共享库。
 
 ## 让大语言模型帮助安装
 
@@ -47,24 +47,7 @@
 
 推荐流程：**将完整目录放入技能目录，运行一次安装器，再完成真实运行验证。**
 
-### 发布页应该下载哪个文件
-
-**普通联网安装，只需下载 `psytrainer-ml-skill.zip`。** 在 [GitHub Releases](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest) 按下面的用途选择：
-
-| 附件 | 什么时候需要 |
-|---|---|
-| `psytrainer-ml-skill.zip` | 推荐，完整 Skill 包；安装器会下载 Python 依赖 |
-| 标有平台和 Python 版本的离线 ZIP | 无法访问包索引时使用，必须匹配操作系统、架构和 Python 版本 |
-| `SHA256SUMS.txt` | 可选，用于核对下载文件完整性；安装器不需要这个文件 |
-
-普通包和离线包二选一即可，可用的离线平台以发布页为准。使用 Git 克隆仓库时，无需另下载这些附件。
-
-<details>
-<summary>可选：SHA-256 校验文件有什么用？</summary>
-
-`SHA256SUMS.txt` 记录发布附件的文件摘要，用来核对下载的 ZIP 是否与发布文件一致，例如离线转拷后或怀疑下载不完整时。它不是依赖，不需要放入技能目录，普通安装无需手动校验。文件校验也不代表训练能正常运行，实际运行仍由下面的训练、预测和报告测试验证。
-
-</details>
+在 [GitHub Releases](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest) 下载 **`psytrainer-ml-skill.zip`**，完整解压后运行安装器即可。使用 Git 克隆仓库时，无需另下载发布附件。
 
 ### 1. 准备 Python 并选择目录
 
@@ -188,23 +171,8 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 | 找不到支持的 Python | 安装 CPython 3.12、3.13 或 3.14，或用 `--python /path/to/python` 指定 |
 | 希望切换 `.venv` 的 Python 版本 | 用 `--python PATH --recreate`；PowerShell 使用 `-Python PATH -Recreate` |
 | 移动目录后解释器路径失效 | 在新位置用 `--recreate` 重建环境和 `runtime.json`，不要复制其他机器的 `.venv` |
-| 离线安装缺依赖 | 换用匹配操作系统、架构与 Python 版本的完整离线包 |
 
 `--recreate` 会删除并重建当前模式的虚拟环境，不要把数据或结果保存在其中。普通重复安装无需这个选项。原来的 Python 3.12/3.13 环境可以直接使用。`--wheel` / `PSYTRAINER_WHEEL` 用于替换兼容引擎的 wheel，指定它们会启用兼容安装模式。
-
-## 离线部署（可选）
-
-普通联网用户无需制作离线包。无包索引访问权限的机器，可下载匹配平台的离线发布包；若没有匹配的包，在联网机器上构建。例如 Windows x64：
-
-```bash
-python3 scripts/build_bundle.py --platform win_amd64 --output dist/psytrainer-ml-windows-x64.zip
-```
-
-省略 `--platform` 则面向构建机器的平台。构建器仅在所有依赖下载成功后输出 ZIP。离线包仍要求目标机器事先安装匹配的 Python 和系统共享库。
-
-可加 `--python python3.12` 明确选择 Python 版本，`bundle.json` 会记录版本供目标安装器选择。原 INI 引擎的离线包需要构建时加 `--legacy`，安装时也加 `--legacy`。普通 Pipeline 离线包不包含原引擎的额外依赖。
-
-将完整包解压到技能目录后执行同一个安装器。它检测到 `wheelhouse/` 会使用 `--no-index`，不回退联网下载。也可通过 `--wheelhouse PATH` 指定依赖目录；PowerShell 包装脚本使用 `-Wheelhouse PATH`。
 
 ## 旧版工作流与开发验证
 

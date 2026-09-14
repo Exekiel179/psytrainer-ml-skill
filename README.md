@@ -43,27 +43,8 @@ repository. This is the normal Skill package: instructions, scripts, configurati
 and the optional original PsyTrainer wheel. Run the installer once to download its
 Python dependencies. At task time, use the installed environment.
 
-**For a normal online installation, download only `psytrainer-ml-skill.zip`.**
-
-| Release asset | When to use it |
-|---|---|
-| `psytrainer-ml-skill.zip` | Recommended complete Skill package; the installer downloads Python dependencies |
-| Platform-specific offline ZIP | For a matching OS, architecture and Python version without package-index access; includes cached dependencies |
-| `SHA256SUMS.txt` | Optional download-integrity checks; not required by the installer |
-
-Offline ZIPs contain the same Skill and are alternatives to the normal package.
-You do not need to download both. Available platforms are listed in each release.
-
-<details>
-<summary>Optional: what is the SHA-256 file for?</summary>
-
-`SHA256SUMS.txt` lists file hashes so you can check whether a downloaded ZIP
-matches the published file, for example after an offline transfer or a suspected
-incomplete download. It is not a dependency and does not need to be copied into
-the Skill directory. Comparing a hash does not test whether training works;
-use the runtime check below for that.
-
-</details>
+**Download `psytrainer-ml-skill.zip`, extract the complete folder, and run the
+installer.** If you clone this repository, no separate release download is needed.
 
 Choose the destination **before** installing the runtime:
 
@@ -156,31 +137,6 @@ The `.venv` and `runtime.json` belong to this machine and installation path.
 After moving the folder, rerun the installer with `--recreate` (PowerShell:
 `-Recreate`). This rebuilds `.venv`; keep datasets and results outside `.venv`.
 
-### Offline bundle
-
-Build on a connected machine. This downloads the entire resolved Python
-dependency set and creates a ZIP only after every download succeeds. Windows x64:
-
-```bash
-python3 scripts/build_bundle.py --platform win_amd64 --output dist/psytrainer-ml-windows-x64.zip
-```
-
-Omit `--platform` for this machine's platform. Bundles are specific to the target
-OS, architecture, and CPython version. They do not include the Python interpreter
-or OS shared libraries. The source ZIP includes the core wheel but is not an
-offline dependency bundle.
-
-Extract the entire bundle and run the normal installer. It detects `wheelhouse/`
-and uses `--no-index` without network fallback. Alternatively pass
-`--wheelhouse PATH` (PowerShell: `-Wheelhouse PATH`). Missing dependencies fail
-installation; a partial install is never reported as ready.
-
-Use `--python python3.12` to choose the bundle's Python version explicitly.
-`bundle.json` records that version and the installer selects it on the target.
-Add `--legacy` when building dependencies for the original INI engine, and run
-the target installer with `--legacy` too. A Pipeline-only bundle cannot install
-the original engine offline.
-
 ## Contents
 
 | Path | Role |
@@ -189,7 +145,6 @@ the original engine offline.
 | `scripts/install_runtime.py` | Complete Pipeline environment; optional separate original engine |
 | `scripts/model_registry.py` | Local 21-model mapping and parameter configuration |
 | `vendor/` | Original PsyTrainer wheel and embedded license |
-| `scripts/build_bundle.py` | Complete offline Python dependency ZIP builder |
 | `scripts/install_runtime.ps1` / `.cmd` | Windows wrappers |
 | `scripts/PsyTrainer.py` | Training CLI wrapper |
 | `scripts/ml.py` | Compact agent commands: inspect, configure, capabilities, train, predict, report |
