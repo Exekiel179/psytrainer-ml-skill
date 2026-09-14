@@ -43,9 +43,27 @@ repository. This is the normal Skill package: instructions, scripts, configurati
 and the optional original PsyTrainer wheel. Run the installer once to download its
 Python dependencies. At task time, use the installed environment.
 
-The larger Windows/macOS offline ZIPs are optional alternatives for computers
-without package-index access. They contain the same Skill plus cached Python
-dependencies; they are not separate products and are not needed for normal setup.
+**For a normal online installation, download only `psytrainer-ml-skill.zip`.**
+
+| Release asset | When to use it |
+|---|---|
+| `psytrainer-ml-skill.zip` | Recommended complete Skill package; the installer downloads Python dependencies |
+| Platform-specific offline ZIP | For a matching OS, architecture and Python version without package-index access; includes cached dependencies |
+| `SHA256SUMS.txt` | Optional download-integrity checks; not required by the installer |
+
+Offline ZIPs contain the same Skill and are alternatives to the normal package.
+You do not need to download both. Available platforms are listed in each release.
+
+<details>
+<summary>Optional: what is the SHA-256 file for?</summary>
+
+`SHA256SUMS.txt` lists file hashes so you can check whether a downloaded ZIP
+matches the published file, for example after an offline transfer or a suspected
+incomplete download. It is not a dependency and does not need to be copied into
+the Skill directory. Comparing a hash does not test whether training works;
+use the runtime check below for that.
+
+</details>
 
 Choose the destination **before** installing the runtime:
 

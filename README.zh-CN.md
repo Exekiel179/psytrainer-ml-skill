@@ -47,6 +47,25 @@
 
 推荐流程：**将完整目录放入技能目录，运行一次安装器，再完成真实运行验证。**
 
+### 发布页应该下载哪个文件
+
+**普通联网安装，只需下载 `psytrainer-ml-skill.zip`。** 在 [GitHub Releases](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest) 按下面的用途选择：
+
+| 附件 | 什么时候需要 |
+|---|---|
+| `psytrainer-ml-skill.zip` | 推荐，完整 Skill 包；安装器会下载 Python 依赖 |
+| 标有平台和 Python 版本的离线 ZIP | 无法访问包索引时使用，必须匹配操作系统、架构和 Python 版本 |
+| `SHA256SUMS.txt` | 可选，用于核对下载文件完整性；安装器不需要这个文件 |
+
+普通包和离线包二选一即可，可用的离线平台以发布页为准。使用 Git 克隆仓库时，无需另下载这些附件。
+
+<details>
+<summary>可选：SHA-256 校验文件有什么用？</summary>
+
+`SHA256SUMS.txt` 记录发布附件的文件摘要，用来核对下载的 ZIP 是否与发布文件一致，例如离线转拷后或怀疑下载不完整时。它不是依赖，不需要放入技能目录，普通安装无需手动校验。文件校验也不代表训练能正常运行，实际运行仍由下面的训练、预测和报告测试验证。
+
+</details>
+
 ### 1. 准备 Python 并选择目录
 
 新 Pipeline 支持 **CPython 3.12、3.13、3.14**。可从 [Python 官网](https://www.python.org/downloads/)安装；已安装 `uv` 的用户也可以执行 `uv python install 3.12`。安装器会查找支持的解释器，但不会自动下载 Python。只有显式安装原 INI 兼容引擎时，内置 wheel 才要求 CPython 3.14。
