@@ -111,6 +111,13 @@ Word report automatically:
 Supports grouped/time validation, an independent holdout or external test set,
 fold-local imputation/selection/PCA/resampling, permutation importance, vector
 figures and Chinese/English `.docx` reports. See [Pipeline reference](references/pipeline.md).
+
+Reports now include training/validation gaps, a development-fitted dummy baseline,
+paired test gains and supported bootstrap intervals, regression error structure,
+classification calibration and threshold trade-offs, input shift, correlated
+feature reliance, and group/time stability. Each finding links to numeric source
+data; analysis and report generation use no LLM calls. These diagnostics guide
+development-set experiments and do not automatically tune against test results.
 Existing installations should rerun the installer to add the report dependencies.
 
 For agent-driven setup and runs, use the compact CLI. Configuration generation

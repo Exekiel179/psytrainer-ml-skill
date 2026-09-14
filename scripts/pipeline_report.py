@@ -33,6 +33,14 @@ def style():
 
 def save_figure(fig, directory, name):
     fig.canvas.draw()
+    # Optional local publication QA; ordinary installs need no external skills.
+    import os
+    import sys
+    if os.environ.get("PSYTRAINER_FIGURE_QA_PATH"):
+        sys.path.insert(0, os.environ["PSYTRAINER_FIGURE_QA_PATH"])
+        from audit_panel_alignment import require_matplotlib_panel_alignment
+        require_matplotlib_panel_alignment(fig, json_out=str(directory / f"{name}.alignment.json"),
+                                           tolerance_pt=1.5, gutter_tolerance_pt=1.5, strict=True)
     fig.savefig(directory / f"{name}.png", dpi=600)
     fig.savefig(directory / f"{name}.svg")
     fig.savefig(directory / f"{name}.pdf")
@@ -52,6 +60,14 @@ def plots(directory, summary):
     def add(fig, name, caption, source):
         save_figure(fig, figures, name)
         captions.append({"name": name, "caption": caption, "source": source})
+
+    if (directory / "baseline-cv.csv").exists():
+        from pipeline_diagnostics_plots import diagnostic_plots
+        diagnostic_plots(directory, summary, add)
+        (figures / "figure-manifest.json").write_text(json.dumps({"width_mm": 180, "dpi": 600,
+            "formats": ["png", "svg", "pdf"], "style": "Nature-inspired; no journal compliance certification",
+            "figures": captions}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        return captions
 
     fig, ax = plt.subplots(figsize=(7.09, 3.6), layout="constrained")
     for i, row in enumerate(summary["comparison"]):
@@ -159,6 +175,8 @@ def generate_report(directory):
 
     directory = Path(directory)
     s = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
+    from pipeline_analysis import analyze
+    analysis = analyze(directory, s)
     captions = plots(directory, s)
     zh = s["language"] == "zh"
     doc = Document()
@@ -227,6 +245,31 @@ def generate_report(directory):
     paragraph(("测试结果仅描述本次划分的泛化表现；内部留出集不等同于跨机构或前瞻性外部验证。"
                if zh else "Test results describe this split; an internal holdout is not cross-site or prospective external validation."))
 
+    heading("证据解读与改进方向" if zh else "Evidence and Improvement Directions")
+    for finding in analysis["findings"]:
+        paragraph(finding["zh" if zh else "en"])
+        paragraph(("证据：" if zh else "Evidence: ") + finding["source"])
+    heading("指标不确定性" if zh else "Metric Uncertainty")
+    interval = analysis["interval"]
+    paragraph((f"重采样方法：{interval['method']}；请求重复次数={interval['requested_repeats']}，重采样单位数={interval['units']}。区间为固定已训练模型下的 95% 百分位区间，不涵盖训练、模型选择及数据采集的不确定性。类别不足导致不可计算的重复会被剔除，必须至少有 100 次且达到请求次数的 80% 才输出区间。"
+               if zh else f"Method: {interval['method']}; requested repeats={interval['requested_repeats']}, resampling units={interval['units']}. 95% percentile intervals condition on the fitted model and exclude training, selection and sampling-design uncertainty. Undefined replicates are omitted; at least 100 and 80% of requested repeats must be valid."))
+    if interval["omitted_reason"]:
+        paragraph(("区间未计算：" if zh else "Intervals omitted: ") + interval["omitted_reason"])
+    intervals = pd.read_csv(directory / "metric-intervals.csv")
+    table = doc.add_table(rows=1, cols=4)
+    table.style = "Light Shading Accent 1"
+    headers = ["指标", "模型点估计", "模型 95% 区间", "相对基线增益"] if zh else ["Metric", "Estimate", "Model 95% interval", "Gain over baseline"]
+    for cell, text in zip(table.rows[0].cells, headers):
+        cell.text = text
+    md.append("| " + " | ".join(headers) + " |\n|---|---|---|---|\n")
+    for row in intervals.itertuples():
+        values = [row.metric, f"{row.estimate:.4g}" if pd.notna(row.estimate) else "NA",
+                  f"[{row.lower:.4g}, {row.upper:.4g}]" if pd.notna(row.lower) else "NA",
+                  f"{row.gain:.4g}" if pd.notna(row.gain) else "NA"]
+        for cell, text in zip(table.add_row().cells, values):
+            cell.text = text
+        md.append("| " + " | ".join(values) + " |\n")
+
     for number, figure in enumerate(captions, 1):
         doc.add_page_break()
         heading((f"图 {number} | " if zh else f"Figure {number} | ") + figure["name"])
@@ -244,7 +287,7 @@ def generate_report(directory):
     heading("讨论与局限" if zh else "Discussion and Limitations")
     limitations = [
         "交叉验证用于选择模型，最佳交叉验证分数可能偏乐观。最终性能以独立测试结果为准。",
-        "折间标准差及置换标准差不是置信区间；本报告未计算显著性检验或因果效应。",
+        "折间标准差及置换标准差不是置信区间；测试指标区间如有提供，仅为固定模型下的重采样区间。本报告不作显著性检验或因果推断。",
         "置换重要性衡量预测依赖性，相关特征可相互掩盖；分组或时间数据的逐行置换可能破坏依赖结构，因此只作描述性解释。",
         "独立测试集已用于评估与解释。若依据测试结果继续调参或筛选特征，应取得新的独立测试集。",
         "数据划分无法修复输入表在全体样本上预先填补、标准化、选择特征或构造未来信息所造成的泄漏。请提供未经此类处理的原始预测变量。",

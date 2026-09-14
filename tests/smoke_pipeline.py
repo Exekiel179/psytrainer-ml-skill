@@ -51,6 +51,18 @@ def exercise(root):
         summary = json.loads((out / "summary.json").read_text())
         assert summary["development_n"] + summary["test_n"] <= len(x)
         assert len(summary["comparison"]) == 2
+        diagnostics = json.loads((out / "analysis.json").read_text())
+        assert len(diagnostics["findings"]) >= 4
+        intervals = pd.read_csv(out / "metric-intervals.csv")
+        if split == "time":
+            assert intervals.lower.isna().all()
+        else:
+            assert intervals.lower.notna().any()
+        oof = pd.read_csv(out / "oof-predictions.csv", dtype={"sample_id": str})
+        membership = pd.read_csv(out / "split-membership.csv", dtype={"sample_id": str})
+        test_ids = set(membership.loc[membership.partition == "test", "sample_id"])
+        assert not set(oof.sample_id) & test_ids
+        assert len(pd.read_csv(out / "error-cases.csv")) == summary["test_n"]
         with zipfile.ZipFile(out / "report.docx") as archive:
             assert archive.testzip() is None
         doc = Document(out / "report.docx")

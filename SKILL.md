@@ -25,6 +25,10 @@ command and `pipeline.joblib`; legacy pickles use the legacy prediction command.
 Never select models/features using held-out results or importance. Require raw
 predictors: a Pipeline cannot undo leakage introduced upstream. Explain missing
 classes, model failures and validation limits reported in `summary.json`.
+For interpretation, read compact `analysis.json`: measured baseline gains,
+uncertainty, error patterns, calibration and stability, with source paths.
+Keep test diagnostics separate from development-set improvement experiments.
+`--bootstrap 0` skips interval computation; report regeneration never retrains.
 
 Use `scripts/ml.py` for legacy INI workflows and installed model discovery. It validates inputs and returns compact JSON. Full training
 logs and results stay on disk. Do not read scripts, entire CSVs or all references

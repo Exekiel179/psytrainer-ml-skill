@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.decomposition import PCA
+from sklearn.dummy import DummyClassifier, DummyRegressor
 from sklearn.feature_selection import SelectKBest, f_classif, f_regression
 from sklearn.impute import SimpleImputer
 from sklearn.inspection import permutation_importance
@@ -184,10 +185,12 @@ def evaluate(model, x, y, task):
         frame["residual"] = y - predicted
     else:
         metrics = {"accuracy": float(accuracy_score(y, predicted)),
-                   "balanced_accuracy": float(balanced_accuracy_score(y, predicted)),
-                   "f1_macro": float(f1_score(y, predicted, average="macro", zero_division=0))}
+                   "balanced_accuracy": float(balanced_accuracy_score(y, predicted))
+                   if set(y) == set(model.classes_) else None,
+                   "f1_macro": float(f1_score(y, predicted, labels=model.classes_, average="macro", zero_division=0))}
         if len(model.classes_) == 2 and hasattr(model, "predict_proba"):
             frame["positive_score"] = model.predict_proba(x)[:, 1]
+            frame["positive_probability"] = frame["positive_score"]
         elif len(model.classes_) == 2 and hasattr(model, "decision_function"):
             frame["positive_score"] = model.decision_function(x)
         if "positive_score" in frame and y.nunique() == 2:
@@ -202,6 +205,8 @@ def run(args):
         raise ValueError("require 0 < test-size < 1, cv >= 2, gap >= 0 and repeats >= 2")
     if args.select_k < 0 or args.pca < 0 or args.seed < 0:
         raise ValueError("select-k, pca and seed must be nonnegative")
+    if args.bootstrap != 0 and args.bootstrap < 100:
+        raise ValueError("bootstrap must be 0 (disabled) or at least 100")
     if args.split != "time" and args.gap:
         raise ValueError("gap is only defined for time splitting")
     if (args.group_column and args.split != "group") or (args.time_column and args.split != "time"):
@@ -277,24 +282,37 @@ def run(args):
                   for number, (tr, va) in enumerate(folds, 1)
                   for role, indices in (("train", tr), ("validation", va)) for i in indices]
     pd.DataFrame(fold_audit).to_csv(output / "cv-membership.csv", index=False)
-    records, candidates, failures = [], {}, []
+    records, candidates, failures, oof = [], {}, [], []
     scorer = get_scorer(SCORERS[args.task][args.metric])
     direction = -1 if args.metric in ("mae", "rmse") else 1
     tags = list(dict.fromkeys(args.model or DEFAULT_MODELS[args.task]))
     with (output / "run.log").open("w", encoding="utf-8") as log, contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
+        baseline = (DummyClassifier(strategy="prior") if args.task == "classification" else
+                    DummyRegressor(strategy="median" if args.metric == "mae" else "mean"))
+        baseline_records = []
+        for number, (tr, va) in enumerate(folds, 1):
+            fitted_baseline = clone(baseline).fit(train_x.iloc[tr], train_y.iloc[tr])
+            baseline_records.append({"fold": number, "score": direction * float(
+                scorer(fitted_baseline, train_x.iloc[va], train_y.iloc[va]))})
+        pd.DataFrame(baseline_records).to_csv(output / "baseline-cv.csv", index=False)
         for tag in tags:
             try:
                 pipeline = make_pipeline(estimator(tag, args.task, args.seed), args)
-                local_records = []
+                local_records, local_oof = [], []
                 for number, (tr, va) in enumerate(folds, 1):
                     fitted = clone(pipeline).fit(train_x.iloc[tr], train_y.iloc[tr])
                     score = float(scorer(fitted, train_x.iloc[va], train_y.iloc[va]))
                     if not np.isfinite(score):
                         raise ValueError("non-finite validation score")
                     local_records.append({"model": tag, "fold": number, "score": direction * score,
+                                          "train_score": direction * float(scorer(fitted, train_x.iloc[tr], train_y.iloc[tr])),
                                           "train_n": len(tr), "validation_n": len(va)})
+                    _, fold_predictions = evaluate(fitted, train_x.iloc[va], train_y.iloc[va], args.task)
+                    fold_predictions["fold"], fold_predictions["model"] = number, tag
+                    local_oof.append(fold_predictions)
                 candidates[tag] = pipeline
                 records.extend(local_records)
+                oof.extend(local_oof)
             except Exception as exc:
                 failures.append({"model": tag, "error": str(exc)})
         if not candidates:
@@ -302,6 +320,7 @@ def run(args):
             raise ValueError(f"all models failed; see {output / 'failures.json'}")
         cv = pd.DataFrame(records)
         cv.to_csv(output / "cv-scores.csv", index=False)
+        pd.concat(oof).to_csv(output / "oof-predictions.csv", index_label="sample_id")
         comparison = [{"model": tag, "mean": float(g.score.mean()), "sd": float(g.score.std(ddof=1)),
                        "folds": len(g)} for tag, g in cv.groupby("model", sort=False)]
         comparison.sort(key=lambda r: direction * r["mean"], reverse=True)
@@ -311,6 +330,12 @@ def run(args):
         if not all(v is None or np.isfinite(v) for v in metrics.values()):
             raise ValueError("non-finite test metrics")
         predictions.to_csv(output / "test-predictions.csv", index_label="sample_id")
+        baseline.fit(train_x, train_y)
+        baseline_metrics, baseline_predictions = evaluate(baseline, test_x, test_y, args.task)
+        baseline_predictions.to_csv(output / "baseline-predictions.csv", index_label="sample_id")
+        from pipeline_analysis import feature_shift
+        feature_shift(train_x, test_x).to_csv(output / "feature-shift.csv", index=False)
+        train_x.corr(method="spearman").to_csv(output / "feature-correlations.csv", index_label="feature")
         importance = None
         if args.metric != "roc_auc" or test_y.nunique() == 2:
             perm = permutation_importance(best, test_x, test_y, scoring=scorer,
@@ -330,6 +355,10 @@ def run(args):
                "cv_folds": args.cv, "gap": args.gap, "development_n": len(train_x), "test_n": len(test_x),
                "feature_n": x.shape[1], "metric": args.metric, "direction": "lower" if direction < 0 else "higher",
                "selected_model": selected, "comparison": comparison, "test_metrics": metrics,
+               "baseline": {"strategy": baseline.strategy, "test_metrics": baseline_metrics},
+               "bootstrap_repeats": args.bootstrap,
+               "score_kind": ("probability" if "positive_probability" in predictions else
+                              "decision" if "positive_score" in predictions else "none"),
                "classes": list(best.classes_) if args.task == "classification" else [],
                "preprocessing": {"impute": args.impute, "scale": not args.no_scale, "select_k": args.select_k,
                                  "pca": args.pca, "resample": args.resample},
@@ -348,6 +377,7 @@ def run(args):
     generate_report(output)
     return {"status": "completed", "selected_model": selected, "test_metrics": metrics,
             "summary": str(output / "summary.json"), "report": str(output / "report.docx"),
+            "analysis": str(output / "analysis.json"),
             "figures": str(output / "figures"), "model": str(output / "pipeline.joblib"), "failures": failures}
 
 
@@ -393,6 +423,8 @@ def parser():
     t.add_argument("--pca", type=int, default=0)
     t.add_argument("--resample", choices=("none", "random-over"), default="none")
     t.add_argument("--repeats", type=int, default=10)
+    t.add_argument("--bootstrap", type=int, default=500,
+                   help="Test percentile bootstrap repeats, 0 to disable; time designs omit intervals")
     t.add_argument("--language", choices=("zh", "en"), default="zh")
     t.add_argument("--question", default="")
     pr = commands.add_parser("predict", help="Load only trusted local joblib files")

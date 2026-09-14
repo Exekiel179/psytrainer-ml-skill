@@ -67,6 +67,13 @@ The command returns one compact JSON result. Full artifacts remain on disk:
 | `split-membership.csv`, `cv-membership.csv` | Auditable IDs, partitions, folds; purged holdout rows are recorded |
 | `cv-scores.csv` | Per-model, per-fold primary score and sample counts |
 | `test-predictions.csv` | Observed/predicted values and residuals or binary scores |
+| `oof-predictions.csv` | Fold validation predictions for successful candidates; selection diagnostics only |
+| `baseline-cv.csv`, `baseline-predictions.csv` | Development-only fitted dummy reference, never a selection candidate |
+| `metric-intervals.csv`, `analysis.json` | Test estimates, paired baseline gains, supported 95% intervals, measured findings and interpretation |
+| `regression-bins.csv`, `error-cases.csv` | Prediction-level errors and all samples ordered by error |
+| `class-metrics.csv`, `calibration.csv`, `thresholds.csv` | Class support, probability reliability, descriptive threshold trade-offs where defined |
+| `feature-shift.csv`, `feature-correlations.csv` | Development/test mean and missingness shifts; development Spearman correlations |
+| `strata-metrics.csv`, `strata-membership.csv` | Group or ordered time-block performance with counts and auditable membership |
 | `importance.csv`, `importance-repeats.csv` | Test permutation importance, all features and repeats |
 | `figures/` | 180 mm figures in PDF, editable SVG and 600 dpi PNG; caption/source manifest |
 | `report.docx`, `report.md` | Structured methods, results, figures, limitations, provenance |
@@ -84,13 +91,35 @@ readable editable vector text, source-data traceability and explicit uncertainty
 These references inform this self-contained implementation; users do not need
 those skills installed. Nature-inspired styling is not journal certification.
 
-Plots: fold comparison, regression observed-vs-predicted and residuals, or
-classification confusion matrix plus binary ROC/precision-recall where defined;
-permutation importance uses original input features through the full Pipeline.
+Figures answer separate diagnostic questions: training/validation gaps and paired
+fold gains over a dummy; held-out performance and uncertainty; regression
+agreement, residual spread, absolute-error CDF and error by prediction level;
+classification row-normalized confusion and per-class support, ROC/PR,
+probability calibration with bin counts, and threshold trade-offs; permutation
+reliance, feature correlation, input shift, and group/time stability.
+The report translates measured findings into bounded development-set follow-ups,
+without selecting thresholds, removing features or retuning against the test set.
+
+`--bootstrap 500` is the default; use 0 to disable or at least 100 repeats.
+Random designs resample test rows; grouped designs resample entire test groups
+and omit intervals below five groups. Time designs omit intervals because a
+valid block length has not been specified. Intervals are 95% percentile
+intervals conditional on the fitted model; they exclude training/selection
+uncertainty. Model/baseline gains use the same resampled observations and are
+oriented positive-is-better. A metric needs at least 100 and 80% valid repeats.
+Missing-class balanced accuracy and AUC are undefined; counts stay visible.
+
+Only genuine `predict_proba` output is calibrated; decision scores are never
+treated as probabilities even when they fall in [0, 1]. Brier and ten-bin ECE
+are descriptive; calibration and threshold curves have no confidence bands.
+The conventional threshold line does not override the vendor prediction rule.
 Fold bars are sample SD; importance bars are population SD across `--repeats`
-permutations (default 10). Neither is a confidence interval. There are no
-significance tests. Only the top 15 importance features are plotted; all values
-are retained. No samples are subsampled for prediction scatterplots.
+permutations (default 10), not confidence intervals. Regression residual bands
+are within-bin 10th-90th percentiles, not prediction intervals. There are no
+significance tests. Top 12 importance/shift features are shown with all values
+retained; every group is plotted, paginated above 20. All prediction samples
+are plotted, using hexbin counts above 1500 samples. Reports from older runs
+remain regenerable but cannot invent missing baseline, probability or CV data.
 
 Permutation scores measure predictive reliance, not causality. Correlated
 predictors can mask importance. Row permutation may disrupt group/time
