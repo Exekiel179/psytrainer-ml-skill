@@ -73,7 +73,7 @@ class DiagnosticsTests(unittest.TestCase):
             analyze(root, summary)
             table = pd.read_csv(root / "metric-intervals.csv").set_index("metric")
             self.assertTrue(pd.isna(table.loc["roc_auc", "estimate"]))
-            self.assertEqual(json.loads((root / "analysis.json").read_text())["test_n"], 2)
+            self.assertEqual(json.loads((root / "analysis.json").read_text(encoding="utf-8"))["test_n"], 2)
             errors = pd.read_csv(root / "error-cases.csv", keep_default_na=False)
             self.assertEqual(list(errors.observed), ["NA", "NA"])
 

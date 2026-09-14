@@ -48,10 +48,10 @@ def exercise(root):
                          "--task", task, "--split", split, "--output-dir", out, "--cv", 3, "--repeats", 3,
                          "--impute", "median", "--select-k", 3, "--pca", 2, *extra)
         assert result["status"] == "completed" and not result["failures"], result
-        summary = json.loads((out / "summary.json").read_text())
+        summary = json.loads((out / "summary.json").read_text(encoding="utf-8"))
         assert summary["development_n"] + summary["test_n"] <= len(x)
         assert len(summary["comparison"]) == 2
-        diagnostics = json.loads((out / "analysis.json").read_text())
+        diagnostics = json.loads((out / "analysis.json").read_text(encoding="utf-8"))
         assert len(diagnostics["findings"]) >= 4
         intervals = pd.read_csv(out / "metric-intervals.csv")
         if split == "time":
