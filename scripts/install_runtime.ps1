@@ -2,11 +2,9 @@
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1 -Wheel 'D:\wheels\PsyTrainer-*.whl'
-#   $env:PSYTRAINER_WHEEL = 'D:\wheels\PsyTrainer-0.2.0-cp314-none-any.whl'
-#   powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1
 
 param(
-    [string]$Wheel = $env:PSYTRAINER_WHEEL,
+    [string]$Wheel = "",
     [string]$Python = "",
     [switch]$Recreate,
     [string]$Wheelhouse = "",
@@ -35,5 +33,5 @@ if (Get-Command python -ErrorAction SilentlyContinue) {
     exit $LASTEXITCODE
 }
 
-Write-Error "Python not found. Install CPython 3.12-3.14 (3.14 for -Legacy) and enable the py launcher."
+Write-Error "Python not found. Install CPython 3.12-3.14 and enable the py launcher."
 exit 1

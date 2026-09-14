@@ -10,15 +10,31 @@ Standalone PsyClaw / Codex Skill for tabular training and batch prediction with 
 ## What gets installed?
 
 This Skill combines agent instructions with local Python tools for training,
-prediction, scientific figures, and Word reports. The bundled `.whl` is the
-optional original PsyTrainer Python library, not a second Skill or a pretrained
-model. The Pipeline now uses a local registry of the same 9 classification and
+prediction, scientific figures, and Word reports. No PsyTrainer wheel is included
+or required. The Pipeline uses a local registry of the same 9 classification and
 12 regression algorithms, calling their libraries directly. It retains model
 names and estimator defaults while owning validation, preprocessing and reporting.
 It also provides bounded grid/random search, forward/F-threshold selection,
 all seven original resampling families, domain model presets and checked CV
 resume. The [itemized wheel audit](references/wheel-audit.md) records migrated
 capabilities, verification and reasons for retiring defective legacy behavior.
+
+### Local preprocessing
+
+| Operation | Local Pipeline option |
+|---|---|
+| Missing values | Reject by default; `--impute median` fits training-fold medians |
+| Scaling | StandardScaler by default; `--scaler minmax` or `--no-scale` |
+| Univariate selection | `--select-k N` or `--selection f-threshold --f-threshold 5` |
+| Forward selection | `--selection forward --select-k N`, with group/time-aware inner CV |
+| PCA | `--pca N`, saved with the fitted preprocessing for prediction |
+| Classification resampling | `random-over`, `smote`, `smote-tomek`, `smote-enn`, `cluster-centroids`, `random-under`, `near-miss` via `--resample`; training only |
+| Parameter/preprocessing search | `--search grid` or `random`, conditional `--search-space`, per-model `--max-candidates` |
+| Domain model sets | `--preset audio`, `face`, `gait`, `text`: regression on extracted numeric features, not raw-media extraction |
+| Resume and persistence | `--resume` verifies inputs/configuration/versions; `--save-candidates` retains each model's best configuration |
+
+Learned transforms fit within training folds. The holdout is excluded from
+selection/search; figures and Word reports record the actual processing and results.
 
 Setup has two parts: put the **whole Skill folder** where your host discovers
 skills, then run its runtime installer once. Copying `SKILL.md` alone or enabling
@@ -32,7 +48,7 @@ Give your local coding agent this request (it needs terminal and network access)
 ```text
 Install the complete psytrainer-ml Skill from
 https://github.com/Exekiel179/psytrainer-ml-skill into this host's skill directory.
-Keep scripts, references, requirements.txt and vendor together with SKILL.md.
+Keep scripts, references, requirements.txt and the other project files together with SKILL.md.
 Follow README.md to check CPython 3.12, 3.13 or 3.14 and run scripts/install_runtime.py
 (or the Windows wrapper). Do not stop after downloading the instructions.
 Use the Python recorded in runtime.json to run tests/smoke_pipeline.py for real
@@ -43,8 +59,8 @@ and any unresolved installation errors.
 ## Download the Skill
 
 Use `psytrainer-ml-skill.zip` from the [latest GitHub Release](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest), or clone this
-repository. This is the normal Skill package: instructions, scripts, configuration,
-and the optional original PsyTrainer wheel. Run the installer once to download its
+repository. This is the normal Skill package: instructions, scripts and configuration,
+without the PsyTrainer wheel. Run the installer once to download its
 Python dependencies. At task time, use the installed environment.
 
 **Download `psytrainer-ml-skill.zip`, extract the complete folder, and run the
@@ -68,8 +84,7 @@ PsyClaw's product source tree is not needed.
 
 Install **CPython 3.12, 3.13 or 3.14** first (python.org or
 `uv python install 3.12`). Download the entire repository. The default runtime
-supports every Pipeline model without installing PsyTrainer. Its original wheel
-remains included in `vendor/` for optional INI compatibility.
+supports every Pipeline model without downloading or installing PsyTrainer.
 
 ### macOS / Linux
 
@@ -111,7 +126,8 @@ does not prove the runtime works.
 Existing Python 3.12/3.13 environments are supported. To change the interpreter,
 use `--python PATH --recreate` (PowerShell: `-Python PATH -Recreate`).
 The optional `--legacy` mode has its own environment and version requirements,
-described below. `--wheel` / `PSYTRAINER_WHEEL` imply that mode.
+described below. It requires an explicit external `--wheel`; a stale
+`PSYTRAINER_WHEEL` environment variable does not change a normal installation.
 
 Online installation downloads third-party dependencies. On macOS, LightGBM
 may require OpenMP (`brew install libomp`). Native-library import failures stop
@@ -148,7 +164,7 @@ After moving the folder, rerun the installer with `--recreate` (PowerShell:
 | `SKILL.md` | Agent workflow |
 | `scripts/install_runtime.py` | Complete Pipeline environment; optional separate original engine |
 | `scripts/model_registry.py` | Local 21-model mapping and parameter configuration |
-| `vendor/` | Original PsyTrainer wheel and embedded license |
+| `scripts/pipeline_options.py` | Local preprocessing, resampling, search and resume |
 | `scripts/install_runtime.ps1` / `.cmd` | Windows wrappers |
 | `scripts/PsyTrainer.py` | Training CLI wrapper |
 | `scripts/ml.py` | Compact agent commands: inspect, configure, capabilities, train, predict, report |
@@ -194,15 +210,16 @@ and `--save-candidates` are documented in [migrated training options](references
 Use this section for existing PsyTrainer INI jobs. New analyses should use the
 Pipeline commands above; these two runners have different validation behavior.
 
-Install the optional original engine once:
+Only when reusing historical INI jobs, supply your own original engine package:
 
 ```bash
-python3 scripts/install_runtime.py --legacy
+python3 scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer.whl
 ```
 
-On Windows use `scripts\install_runtime.cmd --legacy` or the PowerShell wrapper
-with `-Legacy`. The bundled original wheel requires CPython 3.14 **only for this
-mode**. It is checksum-verified and installed into `.venv-legacy`; the separate
+On Windows use `scripts\install_runtime.cmd --legacy --wheel C:\path\PsyTrainer.whl`
+or the PowerShell wrapper with `-Legacy -Wheel C:\path\PsyTrainer.whl`.
+The external package's metadata selects the matching Python (3.14 for the audited
+0.2.0 package). It is installed into `.venv-legacy`; the separate
 `runtime-legacy.json` records its interpreter and `capabilities.legacy: true`.
 The main `.venv` and `runtime.json` are preserved. Existing pre-migration
 environments containing PsyTrainer still work; no package is removed automatically.

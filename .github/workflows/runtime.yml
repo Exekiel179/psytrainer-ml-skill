@@ -43,32 +43,6 @@ jobs:
           subprocess.run([runtime['python'], '-c', 'import importlib.util; assert importlib.util.find_spec("ccpl_training_models") is None'], check=True)
           subprocess.run([runtime['python'], 'tests/smoke_pipeline.py'], check=True)
 
-  original-engine:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.14'
-      - name: macOS OpenMP
-        if: runner.os == 'macOS'
-        run: brew install libomp
-      - name: Install original INI engine
-        run: python scripts/install_runtime.py --legacy
-      - name: Verify compatibility
-        shell: python
-        run: |
-          import json, subprocess
-          runtime = json.load(open('runtime-legacy.json'))
-          assert runtime['ready'] and runtime['capabilities']['legacy']
-          subprocess.run([runtime['python'], '-m', 'unittest', 'discover', '-s', 'tests', '-v'], check=True)
-          subprocess.run([runtime['python'], 'tests/smoke_runtime.py'], check=True)
-          subprocess.run([runtime['python'], 'tests/smoke_agent.py'], check=True)
-
   released-skill:
     if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
     strategy:
@@ -105,7 +79,7 @@ jobs:
           assert not (root / '.venv').exists()
           assert not (root / 'runtime.json').exists()
           assert (root / 'SKILL.md').is_file()
-          assert (root / 'vendor/PsyTrainer-0.2.0-cp314-none-any.whl').is_file()
+          assert not list(root.rglob('PsyTrainer-*.whl'))
           env = dict(os.environ, PYTHONNOUSERSITE='1')
           if os.name == 'nt':
               command = ['cmd', '/c', 'scripts\\install_runtime.cmd']
@@ -116,8 +90,8 @@ jobs:
           assert runtime['ready'] and all(runtime['imports'].values())
           subprocess.run([runtime['python'], '-m', 'unittest', 'discover', '-s', 'tests', '-v'],
                          cwd=root, env=env, check=True)
-          if runtime.get('capabilities', {}).get('legacy', 'ccpl_training_models' in runtime['imports']):
-              subprocess.run([runtime['python'], 'tests/smoke_runtime.py'], cwd=root, env=env, check=True)
-              subprocess.run([runtime['python'], 'tests/smoke_agent.py'], cwd=root, env=env, check=True)
+          assert not runtime['capabilities']['legacy']
+          subprocess.run([runtime['python'], '-c', 'import importlib.util; assert importlib.util.find_spec("ccpl_training_models") is None'],
+                         cwd=root, env=env, check=True)
           if (root / 'tests/smoke_pipeline.py').exists():
               subprocess.run([runtime['python'], 'tests/smoke_pipeline.py'], cwd=root, env=env, check=True)

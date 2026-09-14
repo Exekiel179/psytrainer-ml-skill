@@ -72,8 +72,8 @@ Default: `python scripts/install_runtime.py`, CPython 3.12-3.14, `.venv`,
 `runtime.json`. All 21 model dependencies and report libraries are installed.
 Neither source imports nor provenance collection requires PsyTrainer.
 
-Original INI compatibility: `python scripts/install_runtime.py --legacy`,
-wheel-matching CPython (3.14 for the bundled wheel), `.venv-legacy`,
+Original INI compatibility only: `python scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer.whl`,
+with an externally supplied package and matching CPython, `.venv-legacy`,
 `runtime-legacy.json`. Existing INI files and model directories still use
 `ml.py configure/train/predict/report`, `PsyTrainer.py` and `batch_predict.py`.
 The two environments coexist; neither installation deletes the other's marker.

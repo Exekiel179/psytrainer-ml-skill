@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,19 +25,20 @@ install_runtime = load_installer()
 
 
 class InstallRuntimeTests(unittest.TestCase):
-    def test_bundled_wheel_is_complete_and_python314(self):
-        wheel = install_runtime.resolve_wheel(None)
-        self.assertEqual(install_runtime.wheel_python(wheel), (3, 14))
+    def test_legacy_requires_explicit_external_wheel(self):
+        with self.assertRaisesRegex(SystemExit, "provide --legacy --wheel"):
+            install_runtime.resolve_wheel(None)
 
-    def test_missing_or_corrupt_bundle_fails(self):
+    def test_external_wheel_metadata_and_corruption(self):
         with tempfile.TemporaryDirectory() as temp:
-            wheel = Path(temp) / "missing.whl"
-            with patch.object(install_runtime, "BUNDLED_WHEEL", wheel):
-                with self.assertRaisesRegex(SystemExit, "incomplete download"):
-                    install_runtime.resolve_wheel(None)
-                wheel.write_bytes(b"truncated")
-                with self.assertRaisesRegex(SystemExit, "checksum mismatch"):
-                    install_runtime.resolve_wheel(None)
+            wheel = Path(temp) / "external.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                archive.writestr("PsyTrainer-0.2.0.dist-info/METADATA", "Name: PsyTrainer\nVersion: 0.2.0\n")
+                archive.writestr("PsyTrainer-0.2.0.dist-info/WHEEL", "Tag: cp314-none-any\n")
+            self.assertEqual(install_runtime.wheel_python(wheel), (3, 14))
+            wheel.write_bytes(b"truncated")
+            with self.assertRaisesRegex(SystemExit, "invalid PsyTrainer wheel"):
+                install_runtime.wheel_python(wheel)
 
     def test_allow_missing_fails_and_removes_stale_runtime(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -138,7 +141,8 @@ class InstallRuntimeTests(unittest.TestCase):
 
     def test_pipeline_install_never_resolves_a_vendor_wheel(self):
         with tempfile.TemporaryDirectory() as temp:
-            with patch.object(install_runtime, "RUNTIME_JSON", Path(temp) / "runtime.json"), \
+            with patch.dict(os.environ, {"PSYTRAINER_WHEEL": "stale/external.whl"}), \
+                 patch.object(install_runtime, "RUNTIME_JSON", Path(temp) / "runtime.json"), \
                  patch.object(install_runtime, "resolve_wheel", side_effect=AssertionError("vendor required")), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
@@ -162,11 +166,13 @@ class InstallRuntimeTests(unittest.TestCase):
             marker = root / "runtime.json"
             marker.write_text('{"ready": true}')
             with patch.object(install_runtime, "ROOT", root), \
+                 patch.object(install_runtime, "resolve_wheel", return_value=root / "external.whl"), \
+                 patch.object(install_runtime, "wheel_python", return_value=(3, 14)), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=root / ".venv-legacy/bin/python"), \
                  patch.object(install_runtime, "install_requirements"), \
                  patch.object(install_runtime, "verify", return_value={"ccpl_training_models": True}):
-                self.assertEqual(install_runtime.main(["--legacy"]), 0)
+                self.assertEqual(install_runtime.main(["--legacy", "--wheel", str(root / "external.whl")]), 0)
             payload = json.loads((root / "runtime-legacy.json").read_text())
             self.assertEqual(payload["profile"], "legacy")
             self.assertTrue(payload["capabilities"]["legacy"])

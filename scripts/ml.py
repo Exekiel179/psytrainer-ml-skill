@@ -48,13 +48,13 @@ def capabilities(legacy=False):
                 "feature_filters": ["minmax", "kbest", "f-threshold", "forward", "pca"],
                 "resamplers": list(SAMPLERS), "domain_presets": DOMAIN_MODELS,
                 "resume": "--resume reuses CV folds with identical data/config/code/versions",
-                "legacy": "Original INI engine: install_runtime.py --legacy; use runtime-legacy.json python"}
+                "legacy": "Historical INI only: explicitly supply --legacy --wheel /path/to/PsyTrainer.whl; use runtime-legacy.json python"}
     # Keep original INI capabilities separate from Pipeline scoring and preprocessing.
     with contextlib.redirect_stdout(io.StringIO()):
         try:
             from ccpl_training_models.model.model_factory import ModelFactory
         except ImportError as exc:
-            raise RuntimeError("Original INI engine requires scripts/install_runtime.py --legacy; use runtime-legacy.json python") from exc
+            raise RuntimeError("Historical INI engine requires an external package: scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer.whl; new analyses use pipeline_train.py") from exc
         from ccpl_training_models.feature.ff_factory import FFFactory
         from ccpl_training_models.sampler.sampler_factory import SamplerFactory
         from ccpl_training_models.util.scoring_utils import SCORINGS_CLASSIFIER, SCORINGS_DEFAULT

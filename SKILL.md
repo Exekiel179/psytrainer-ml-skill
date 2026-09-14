@@ -14,8 +14,8 @@ Use for requested PsyTrainer work; invoke `/skill:psytrainer-ml` or `$psytrainer
 Use `runtime.json` -> `python` as `$PY` for the independent Pipeline (CPython
 3.12-3.14); require `ready: true`. Missing runtime:
 follow [README.md](README.md#install-complete-runtime-required) or
-[中文安装说明](README.zh-CN.md#安装) during setup. Keep the whole Skill including
-`vendor/` in the host's skill directory; the wheel is optional for Pipeline.
+[中文安装说明](README.zh-CN.md#安装) during setup. Keep the whole Skill in the host's
+skill directory. PsyTrainer wheel is neither bundled nor needed by Pipeline.
 Downloading the Skill alone does not install
 the runtime. Run commands from the Skill root using absolute data/output paths
 when the user's project is elsewhere. Never bypass missing dependencies.
@@ -45,8 +45,10 @@ and `--resume`. Search only development data; searched CV/OOF scores carry
 selection bias. See [wheel-audit.md](references/wheel-audit.md) when auditing
 legacy capability coverage or explaining intentionally retired behavior.
 
-For original INI workflows, install `scripts/install_runtime.py --legacy` and
-use `runtime-legacy.json` -> `python` as `$PY` (separate CPython 3.14 environment).
+Only for explicitly requested historical INI workflows with a user-supplied wheel,
+install `scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer.whl` and
+use `runtime-legacy.json` -> `python` as `$PY` (separate wheel-matching environment).
+Do not fetch or install PsyTrainer for new analyses; use the local Pipeline.
 An existing environment with a working PsyTrainer installation is also supported.
 `scripts/ml.py` validates inputs and returns compact JSON. Full training
 logs and results stay on disk. Do not read scripts, entire CSVs or all references

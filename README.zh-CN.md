@@ -15,6 +15,24 @@
 
 旧 wheel 的功能已逐项审计，迁移入口、测试与弃用原因见[功能迁移审计](references/wheel-audit.md)。原有模型与领域模型集合保留，无效默认网格和可能泄漏验证信息的处理方式已替换。
 
+### 本地数据处理能力
+
+以下处理由本项目脚本直接调用算法库实现，均不需要 PsyTrainer wheel。
+
+| 处理 | 参数与行为 |
+|---|---|
+| 缺失值 | 默认拒绝；`--impute median` 在训练折拟合中位数填补 |
+| 标准化与归一化 | 默认 StandardScaler；`--scaler minmax` 使用 MinMaxScaler；`--no-scale` 关闭 |
+| 单变量特征筛选 | `--select-k N` 保留前 N 个特征；`--selection f-threshold --f-threshold 5` 按 F 值筛选 |
+| 逐步前向筛选 | `--selection forward --select-k N`，内部交叉验证保留分组或时间边界 |
+| PCA 降维 | `--pca N`，与填补、缩放和筛选一起保存在模型中，预测时复用 |
+| 分类重采样 | `--resample` 支持 `random-over`、`smote`、`smote-tomek`、`smote-enn`、`cluster-centroids`、`random-under`、`near-miss`，仅训练时执行 |
+| 参数和预处理组合搜索 | `--search grid` / `random`，`--search-space` 配置条件组合，`--max-candidates` 限制每个模型的候选数 |
+| 领域模型集合 | `--preset audio` / `face` / `gait` / `text` 使用已审计的回归模型集合；输入是已提取的数值特征，不是原始媒体 |
+| 续跑与模型保存 | `--resume` 校验输入、配置和版本后复用 CV 折；`--save-candidates` 保存各模型的最佳配置 |
+
+所有学习型预处理均在对应训练折拟合；独立测试集不参与筛选和搜索。图表与 Word 报告记录实际采用的处理、搜索结果、验证边界和失败项。
+
 图表和报告的设计参考已融入本项目，使用者无需另装报告绘图类 Skill。
 
 **完整下载 Skill 不等于安装了运行环境。** Skill 包包含全部项目文件，首次安装仍需联网下载第三方 Python 依赖。包内不包含 Python 解释器和系统共享库。
@@ -25,13 +43,13 @@
 
 ```text
 请从 https://github.com/Exekiel179/psytrainer-ml-skill 安装完整的 psytrainer-ml Skill，
-放入当前宿主能发现的技能目录。保留 SKILL.md、scripts、references、requirements.txt 和 vendor 等完整内容。
+放入当前宿主能发现的技能目录。保留 SKILL.md、scripts、references、requirements.txt 等完整项目内容。
 阅读 README.zh-CN.md，检查 CPython 3.12、3.13 或 3.14，执行 scripts/install_runtime.py 或 Windows 包装脚本。
 不要停在下载说明文件这一步。使用 runtime.json 中记录的 Python 运行 tests/smoke_pipeline.py，
 验证真实训练、预测、图表和 Word 报告。完成后告诉我安装位置、实际测试结果和未解决的问题。
 ```
 
-助手按这个流程下载整个仓库或完整发布包时，会一起取得 `vendor/` 内的 wheel。宿主的“安装 Skill”功能是否会执行 Python 安装器，取决于宿主实现；本项目没有自动执行安装器的宿主安装钩子。
+当前版本不包含、不下载也不要求安装 PsyTrainer wheel。宿主的“安装 Skill”功能是否会执行 Python 安装器，取决于宿主实现；本项目没有自动执行安装器的宿主安装钩子。
 
 ## 安装
 
@@ -41,7 +59,7 @@
 
 ### 1. 准备 Python 并选择目录
 
-新 Pipeline 支持 **CPython 3.12、3.13、3.14**。可从 [Python 官网](https://www.python.org/downloads/)安装；已安装 `uv` 的用户也可以执行 `uv python install 3.12`。安装器会查找支持的解释器，但不会自动下载 Python。只有显式安装原 INI 兼容引擎时，内置 wheel 才要求 CPython 3.14。
+新 Pipeline 支持 **CPython 3.12、3.13、3.14**。可从 [Python 官网](https://www.python.org/downloads/)安装；已安装 `uv` 的用户也可以执行 `uv python install 3.12`。安装器会查找支持的解释器，但不会自动下载 Python。
 
 | 使用方式 | Skill 的最终目录 |
 |---|---|
@@ -163,22 +181,22 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 | 现象 | 处理方式 |
 |---|---|
 | 宿主找不到 Skill | 检查宿主技能目录与 `psytrainer-ml/SKILL.md` 层级；安装器不负责技能发现 |
-| 兼容模式的 wheel 缺失或校验失败 | 重新取得完整包并保留 `vendor/`；默认 Pipeline 不需要 wheel |
+| 旧命令提示提供外部 wheel | 新分析使用 `pipeline_train.py`；只有历史 INI 兼容任务才需要自行提供旧包 |
 | 找不到支持的 Python | 安装 CPython 3.12、3.13 或 3.14，或用 `--python /path/to/python` 指定 |
 | 希望切换 `.venv` 的 Python 版本 | 用 `--python PATH --recreate`；PowerShell 使用 `-Python PATH -Recreate` |
 | 移动目录后解释器路径失效 | 在新位置用 `--recreate` 重建环境和 `runtime.json`，不要复制其他机器的 `.venv` |
 
-`--recreate` 会删除并重建当前模式的虚拟环境，不要把数据或结果保存在其中。普通重复安装无需这个选项。原来的 Python 3.12/3.13 环境可以直接使用。`--wheel` / `PSYTRAINER_WHEEL` 用于替换兼容引擎的 wheel，指定它们会启用兼容安装模式。
+`--recreate` 会删除并重建当前模式的虚拟环境，不要把数据或结果保存在其中。普通重复安装无需这个选项。原来的 Python 3.12/3.13 环境可以直接使用。仅显式指定外部 `--wheel` 才会启用兼容安装；遗留 `PSYTRAINER_WHEEL` 环境变量不会改变默认安装流程。
 
 ## 旧版工作流与开发验证
 
-已有 INI 项目可以继续使用 `scripts/ml.py`、`scripts/PsyTrainer.py` 和 `scripts/batch_predict.py`。先安装可选的原引擎：
+新分析直接使用独立 Pipeline，无需旧包。仅在复用历史 INI 项目时，兼容入口 `scripts/ml.py`、`scripts/PsyTrainer.py` 和 `scripts/batch_predict.py` 需要用户自行提供外部原引擎：
 
 ```bash
-python3 scripts/install_runtime.py --legacy
+python3 scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer.whl
 ```
 
-Windows CMD 使用 `scripts\install_runtime.cmd --legacy`；PowerShell 包装脚本加 `-Legacy`。此模式校验并安装内置原始 wheel，要求 CPython 3.14，独立创建 `.venv-legacy` 与 `runtime-legacy.json`。主环境 `.venv` 和 `runtime.json` 保留。兼容命令使用 `runtime-legacy.json` 中的 Python；例如 macOS / Linux 使用 `.venv-legacy/bin/python scripts/ml.py train --config config/run.ini`。
+Windows CMD 使用 `scripts\install_runtime.cmd --legacy --wheel C:\path\PsyTrainer.whl`；PowerShell 包装脚本加 `-Legacy -Wheel C:\path\PsyTrainer.whl`。此模式按外部包的元数据选择 Python（已审计的 0.2.0 包为 3.14），独立创建 `.venv-legacy` 与 `runtime-legacy.json`。主环境 `.venv` 和 `runtime.json` 保留。兼容命令使用 `runtime-legacy.json` 中的 Python；例如 macOS / Linux 使用 `.venv-legacy/bin/python scripts/ml.py train --config config/run.ini`。
 
 原 INI 配置、模型目录和预处理文件继续由原入口处理，不会被自动转换或改变训练语义。安装前已有 PsyTrainer 的环境仍可继续使用，安装器不会自动卸载它。迁移对应关系、JSON 参数示例和历史模型兼容边界见[迁移说明](references/migration.md)，原命令见[命令参考](references/commands.md)与[配置参考](references/configuration.md)。
 
@@ -196,4 +214,4 @@ Windows CMD 使用 `scripts\install_runtime.cmd --legacy`；PowerShell 包装脚
 
 ## 许可与模型文件
 
-本 Skill 使用 [MIT 许可](LICENSE)；随包附带的原始 PsyTrainer wheel 使用其内嵌的 Apache 2.0 许可，来源、校验值和说明见 [NOTICE.md](NOTICE.md)。预测会加载 joblib/pickle 模型文件，只加载可信来源的模型。
+本 Skill 使用 [MIT 许可](LICENSE)，不再分发原始 PsyTrainer wheel；历史审计来源及第三方说明见 [NOTICE.md](NOTICE.md)。预测会加载 joblib/pickle 模型文件，只加载可信来源的模型。

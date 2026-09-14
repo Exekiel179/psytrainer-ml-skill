@@ -1,7 +1,7 @@
 # Commands
 
 This reference describes the original INI engine. Install with
-`scripts/install_runtime.py --legacy` and use `runtime-legacy.json` -> `python`
+`scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer.whl` with a user-supplied package and use `runtime-legacy.json` -> `python`
 as `$PY`. For the independent Pipeline use [pipeline.md](pipeline.md).
 `ml.py capabilities` lists Pipeline models; `ml.py capabilities --legacy` lists
 the original engine's models and metrics. Commands print compact JSON;
@@ -68,7 +68,7 @@ minority examples can produce a single-class fold. Random seeds are not fully
 controlled. Do not represent results as confirmatory or held-out performance.
 
 Rank only within the same target, data and primary metric. Vendor loss scores
-are negated (higher is better). The bundled vendor also negates R2 despite larger
+are negated (higher is better). The audited legacy engine also negates R2 despite larger
 R2 being better; `ml.py` refuses R2 as the primary selection metric. Secondary R2
 in legacy reports also has reversed sign. No confidence interval is synthesized.
 Grouped/longitudinal validation, fold-contained preprocessing, multiclass scoring

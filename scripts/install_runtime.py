@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-import hashlib
 import json
 import os
 import re
@@ -35,8 +34,6 @@ VENV_DIR = ROOT / ".venv"
 REQUIREMENTS = ROOT / "requirements.txt"
 RUNTIME_JSON = ROOT / "runtime.json"
 IS_WINDOWS = os.name == "nt"
-BUNDLED_WHEEL = ROOT / "vendor" / "PsyTrainer-0.2.0-cp314-none-any.whl"
-BUNDLED_SHA256 = "3e999045342b82cf25cb453e61a185530b553e4b9d439d2c5f5964fc5e55c357"
 SUPPORTED_PYTHONS = ((3, 12), (3, 13), (3, 14))
 
 
@@ -149,11 +146,8 @@ def ensure_venv(base_cmd: list[str], *, recreate: bool) -> Path:
 def resolve_wheel(spec: str | None) -> Path:
     """Resolve a wheel path; expand globs in-process (needed on Windows cmd)."""
     if not spec:
-        if not BUNDLED_WHEEL.is_file():
-            raise SystemExit(f"incomplete download: bundled wheel missing: {BUNDLED_WHEEL}")
-        if hashlib.sha256(BUNDLED_WHEEL.read_bytes()).hexdigest() != BUNDLED_SHA256:
-            raise SystemExit("bundled PsyTrainer wheel checksum mismatch; download the complete package again")
-        return BUNDLED_WHEEL
+        raise SystemExit("PsyTrainer is not distributed with this Skill. For existing INI jobs only, "
+                         "provide --legacy --wheel /path/to/PsyTrainer.whl; new analyses use Pipeline.")
     raw = spec.strip().strip('"').strip("'")
     path = Path(raw).expanduser()
     if path.is_file():
@@ -319,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--wheel",
-        help="Override the bundled PsyTrainer wheel (or set PSYTRAINER_WHEEL). Globs work on Windows.",
+        help="Explicit external PsyTrainer wheel for existing INI jobs only. Globs work on Windows.",
     )
     parser.add_argument(
         "--recreate",
@@ -332,9 +326,9 @@ def main(argv: list[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--wheelhouse", type=Path, help="Install all dependencies offline from this directory")
-    parser.add_argument("--legacy", action="store_true", help="Install the original INI engine in .venv-legacy (bundled wheel requires CPython 3.14)")
+    parser.add_argument("--legacy", action="store_true", help="Existing INI compatibility only; requires an external --wheel")
     args = parser.parse_args(argv)
-    if args.wheel or os.environ.get("PSYTRAINER_WHEEL", "").strip():
+    if args.wheel:
         args.legacy = True
     with runtime_location(args.legacy):
         return install(args)
@@ -346,7 +340,7 @@ def install(args) -> int:
     RUNTIME_JSON.unlink(missing_ok=True)
     if args.allow_missing_psytrainer:
         raise SystemExit("--allow-missing-psytrainer is no longer supported: a complete runtime is required")
-    wheel_spec = (args.wheel or os.environ.get("PSYTRAINER_WHEEL", "")).strip() or None
+    wheel_spec = (args.wheel or "").strip() or None
     wheel_path = resolve_wheel(wheel_spec) if args.legacy else None
     required = wheel_python(wheel_path) if wheel_path else None
     wheelhouse = args.wheelhouse
@@ -358,7 +352,7 @@ def install(args) -> int:
     if manifest and manifest.is_file():
         bundle = json.loads(manifest.read_text(encoding="utf-8"))
         if args.legacy and bundle["profile"] != "legacy":
-            raise SystemExit("this offline bundle contains Pipeline dependencies only; use a --legacy bundle")
+            raise SystemExit("this offline bundle contains Pipeline dependencies only; install historical INI dependencies separately")
         bundled_python = tuple(bundle["python"])
         if bundled_python not in SUPPORTED_PYTHONS or (required and required != bundled_python):
             raise SystemExit("offline bundle Python does not match the requested runtime")

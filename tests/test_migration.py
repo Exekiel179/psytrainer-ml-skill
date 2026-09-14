@@ -1,13 +1,11 @@
 """Behavioral coverage for the independently migrated wheel capabilities."""
 
 import json
-import ast
 import contextlib
 import io
 import sys
 import tempfile
 import unittest
-import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -45,14 +43,15 @@ class MigrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no features"):
             FThresholdSelector(f_regression, threshold=1e100).fit_transform(x, y)
 
-    def test_domain_presets_match_wheel_interfaces_and_train_without_vendor(self):
-        root = Path(__file__).resolve().parents[1]
-        with zipfile.ZipFile(root / "vendor/PsyTrainer-0.2.0-cp314-none-any.whl") as wheel:
-            for domain, tags in DOMAIN_MODELS.items():
-                tree = ast.parse(wheel.read(f"ccpl_training_models/apps/{domain}/interface.py"))
-                original = {node.value for node in ast.walk(tree) if isinstance(node, ast.Constant)
-                            and isinstance(node.value, str) and node.value.startswith("Model")}
-                self.assertEqual(set(tags), original)
+    def test_domain_presets_match_audited_interfaces_and_train_without_vendor(self):
+        # Public model names recorded from the 0.2.0 wheel audit, not vendor code.
+        expected = {
+            "audio": {"ModelRandomForestRegressor", "ModelKNeighborsRegressor"},
+            "face": {"ModelRandomForestRegressor", "ModelCatBoostRegressor", "ModelSVRRegressor", "ModelXGBoostRegressor", "ModelLGBMRegressor"},
+            "gait": {"ModelRandomForestRegressor", "ModelSVRRegressor", "ModelGPRRegressor", "ModelLRRegressor"},
+            "text": {"ModelExtraTreeRegressor", "ModelAdaBoostRegressor", "ModelGradientBoostingRegressor", "ModelBaggingRegressor", "ModelKNeighborsRegressor", "ModelRandomForestRegressor"},
+        }
+        self.assertEqual({domain: set(tags) for domain, tags in DOMAIN_MODELS.items()}, expected)
         with tempfile.TemporaryDirectory() as temp:
             args, _, _, _ = self.data(Path(temp))
             args.model = None

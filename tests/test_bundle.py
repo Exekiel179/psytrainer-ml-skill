@@ -18,7 +18,6 @@ class BundleTests(unittest.TestCase):
             with patch.object(sys, "argv", ["build_bundle.py", "--output", str(output)]), \
                  patch.object(build_bundle, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(build_bundle, "python_version", return_value=(3, 12)), \
-                 patch.object(build_bundle, "resolve_wheel", side_effect=AssertionError("unexpected wheel")), \
                  patch.object(build_bundle.subprocess, "run") as run:
                 self.assertEqual(build_bundle.main(), 0)
             download = run.call_args_list[1].args[0]
@@ -30,6 +29,8 @@ class BundleTests(unittest.TestCase):
                 self.assertEqual(manifest["profile"], "pipeline")
                 self.assertIn("psytrainer-ml/scripts/model_registry.py", archive.namelist())
                 self.assertIn("psytrainer-ml/README.zh-CN.md", archive.namelist())
+                self.assertFalse(any("/vendor/" in n or "psytrainer-0." in n.lower() for n in archive.namelist()))
+                self.assertIn("psytrainer-ml/scripts/pipeline_options.py", archive.namelist())
                 self.assertFalse(any("/.venv" in n or n.endswith("/runtime.json") for n in archive.namelist()))
 
     def test_failed_download_does_not_publish_zip(self):
@@ -56,7 +57,7 @@ class BundleTests(unittest.TestCase):
                  patch.object(install_runtime, "verify", return_value={"sklearn": True}):
                 self.assertEqual(install_runtime.main([]), 0)
                 self.assertEqual(resolve.call_args.args[1], (3, 12))
-                with self.assertRaisesRegex(SystemExit, "Pipeline dependencies only"):
+                with self.assertRaisesRegex(SystemExit, "provide --legacy --wheel"):
                     install_runtime.main(["--legacy"])
                 self.assertTrue((root / "runtime.json").is_file())
 

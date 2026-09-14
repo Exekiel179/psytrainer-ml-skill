@@ -156,7 +156,7 @@ def train(settings: dict[str, Any], selected_targets: list[str]) -> dict[str, An
         from ccpl_training_models.trainer import Trainer
     except ImportError as exc:
         raise RuntimeError(
-            "Original INI engine is unavailable; run scripts/install_runtime.py --legacy and use runtime-legacy.json python"
+            "Historical INI engine is unavailable; explicitly supply scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer.whl and use runtime-legacy.json python; new analyses use pipeline_train.py"
         ) from exc
 
     features, labels, targets = load_tables(
