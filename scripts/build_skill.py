@@ -22,7 +22,8 @@ def build(root, ref, output):
     commit = subprocess.check_output(
         ["git", "rev-parse", "--verify", f"{ref}^{{commit}}"], cwd=root, text=True).strip()
     data = subprocess.check_output(
-        ["git", "archive", "--format=zip", "--prefix=psytrainer-ml/", commit, "--", *CONTENTS], cwd=root)
+        ["git", "-c", "core.autocrlf=false", "-c", "core.eol=lf", "archive",
+         "--format=zip", "--prefix=psytrainer-ml/", commit, "--", *CONTENTS], cwd=root)
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         assert archive.testzip() is None, "corrupt Skill archive"
         assert archive.comment.decode() == commit, "archive revision mismatch"

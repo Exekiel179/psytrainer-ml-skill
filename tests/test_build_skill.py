@@ -36,6 +36,8 @@ class SkillArchiveTests(unittest.TestCase):
             (root / "scripts/local-secret.txt").write_text("untracked\n")
             first, second = Path(temp) / "first.zip", Path(temp) / "second.zip"
             commit = build(root, "HEAD", first)
+            subprocess.run(["git", "config", "core.autocrlf", "true"], cwd=root, check=True)
+            subprocess.run(["git", "config", "core.eol", "crlf"], cwd=root, check=True)
             build(root, commit, second)
             self.assertEqual(first.read_bytes(), second.read_bytes())
             with zipfile.ZipFile(first) as archive:
