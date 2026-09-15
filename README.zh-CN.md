@@ -45,8 +45,7 @@
 请从 https://github.com/Exekiel179/psytrainer-ml-skill 安装完整的 psytrainer-ml Skill，
 放入当前宿主能发现的技能目录。保留 SKILL.md、scripts、references、requirements.txt 等完整项目内容。
 阅读 README.zh-CN.md，检查 CPython 3.12、3.13 或 3.14，执行 scripts/install_runtime.py 或 Windows 包装脚本。
-不要停在下载说明文件这一步。使用 runtime.json 中记录的 Python 运行 tests/smoke_pipeline.py，
-验证真实训练、预测、图表和 Word 报告。完成后告诉我安装位置、实际测试结果和未解决的问题。
+不要停在下载说明文件这一步。完成后告诉我安装位置、实际测试结果和未解决的问题。
 ```
 
 宿主的“安装 Skill”功能是否会执行 Python 安装器，取决于宿主实现；安装完成后需确认运行环境验证通过。
