@@ -45,14 +45,8 @@ training, prediction and report generation.
 Give your local coding agent this request (it needs terminal and network access):
 
 ```text
-Install the complete psytrainer-ml Skill from
-https://github.com/Exekiel179/psytrainer-ml-skill into this host's skill directory.
-Keep scripts, references, requirements.txt and the other project files together with SKILL.md.
-Follow README.md to check CPython 3.12, 3.13 or 3.14 and run scripts/install_runtime.py
-(or the Windows wrapper). Do not stop after downloading the instructions.
-Use the Python recorded in runtime.json to run tests/smoke_pipeline.py for real
-training, prediction, figures and Word output. Report the actual test result
-and any unresolved installation errors.
+Install https://github.com/Exekiel179/psytrainer-ml-skill into this host's skill directory.
+Follow the README setup section to configure and verify it; report the location and result.
 ```
 
 ## Download the Skill

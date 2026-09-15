@@ -42,10 +42,8 @@
 可以向具有本地终端和联网能力的编码助手发送：
 
 ```text
-请从 https://github.com/Exekiel179/psytrainer-ml-skill 安装完整的 psytrainer-ml Skill，
-放入当前宿主能发现的技能目录。保留 SKILL.md、scripts、references、requirements.txt 等完整项目内容。
-阅读 README.zh-CN.md，检查 CPython 3.12、3.13 或 3.14，执行 scripts/install_runtime.py 或 Windows 包装脚本。
-不要停在下载说明文件这一步。完成后告诉我安装位置、实际测试结果和未解决的问题。
+将 https://github.com/Exekiel179/psytrainer-ml-skill 安装到当前宿主的技能目录，
+按中文 README 的安装章节完成环境配置和验证，汇报位置与结果。
 ```
 
 完整安装包含三步：将文件放入宿主技能目录、配置 Python 运行环境、验证训练与预测。`scripts/install_runtime.py` 是运行环境配置脚本，负责创建虚拟环境、安装依赖并检查依赖可用性。文件放置与技能发现由宿主机制处理，真实工作流由冒烟测试验证。
