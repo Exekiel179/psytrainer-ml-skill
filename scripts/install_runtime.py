@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Install psytrainer-ml runtime dependencies at Skill install time.
+"""Configure the local Python runtime and check its dependencies.
+
+Place the Skill in the host's discovery directory before running this script.
+Verify host discovery and run tests/smoke_pipeline.py after runtime setup.
 
 Cross-platform (macOS / Linux / Windows):
   - Creates a local .venv under the skill root
   - Installs requirements.txt
   - Installs the complete local Pipeline runtime on CPython 3.12-3.14
   - Optionally installs PsyTrainer in a separate .venv-legacy
-  - Writes runtime.json so task runs use the install-time interpreter (no mid-task pip)
+  - Writes runtime.json so tasks use the configured interpreter (no mid-task pip)
 
 Windows notes:
   - Legacy mode selects the Python version declared by the wheel
@@ -305,7 +308,8 @@ def runtime_location(legacy: bool):
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Install psytrainer-ml runtime at Skill install time (Windows/macOS/Linux)"
+        description="Configure the local Python runtime and check dependencies (Windows/macOS/Linux)",
+        epilog="Place the Skill in your host's skill directory first. After setup, verify host discovery and run tests/smoke_pipeline.py.",
     )
     parser.add_argument(
         "--python",
@@ -362,7 +366,8 @@ def install(args) -> int:
     install_requirements(py, wheel_path, wheelhouse)
     status = verify(py, legacy=args.legacy)
     write_runtime(py, status, str(wheel_path.resolve()) if wheel_path else None, base_cmd)
-    print("psytrainer-ml runtime install complete", flush=True)
+    print("psytrainer-ml Python runtime configured; dependency checks passed", flush=True)
+    print(f"Next: verify host discovery and run tests/smoke_pipeline.py with the {RUNTIME_JSON.name} interpreter.", flush=True)
     return 0
 
 

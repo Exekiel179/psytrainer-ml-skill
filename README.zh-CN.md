@@ -48,17 +48,17 @@
 不要停在下载说明文件这一步。完成后告诉我安装位置、实际测试结果和未解决的问题。
 ```
 
-宿主的“安装 Skill”功能是否会执行 Python 安装器，取决于宿主实现；安装完成后需确认运行环境验证通过。
+完整安装包含三步：将文件放入宿主技能目录、配置 Python 运行环境、验证训练与预测。`scripts/install_runtime.py` 是运行环境配置脚本，负责创建虚拟环境、安装依赖并检查依赖可用性。文件放置与技能发现由宿主机制处理，真实工作流由冒烟测试验证。
 
 ## 安装
 
-推荐流程：**将完整目录放入技能目录，运行一次安装器，再完成真实运行验证。**
+推荐流程：**将完整目录放入技能目录，运行环境配置脚本，再验证宿主发现和真实工作流。**
 
-在 [GitHub Releases](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest) 下载 **`psytrainer-ml-skill.zip`**，完整解压后运行安装器即可。使用 Git 克隆仓库时，无需另下载发布附件。
+在 [GitHub Releases](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest) 下载 **`psytrainer-ml-skill.zip`**，按下列步骤放置完整目录、配置环境并验证。使用 Git 克隆仓库时，无需另下载发布附件。
 
 ### 1. 准备 Python 并选择目录
 
-支持 **CPython 3.12、3.13、3.14**。可从 [Python 官网](https://www.python.org/downloads/)安装；已安装 `uv` 的用户也可以执行 `uv python install 3.12`。安装器会查找支持的解释器，但不会自动下载 Python。
+支持 **CPython 3.12、3.13、3.14**。可从 [Python 官网](https://www.python.org/downloads/)安装；已安装 `uv` 的用户也可以执行 `uv python install 3.12`。运行环境配置脚本会查找已安装的受支持解释器。
 
 | 使用方式 | Skill 的最终目录 |
 |---|---|
@@ -66,9 +66,9 @@
 | Codex，仅当前项目 | `<项目>/.agents/skills/psytrainer-ml` |
 | PsyClaw，当前用户 | `~/.psyclaw/skills/psytrainer-ml` |
 
-Codex 目录规则见[官方文档](https://learn.chatgpt.com/docs/build-skills)。Windows 的 `~` 指用户目录；其他宿主请使用其配置的技能目录。安装器只负责 Python 环境，不会替你注册或启用宿主中的 Skill。
+Codex 目录规则见[官方文档](https://learn.chatgpt.com/docs/build-skills)。Windows 的 `~` 指用户目录；其他宿主请使用其配置的技能目录。将完整 Skill 放入对应目录后，按宿主的发现或启用机制加载它。
 
-### 2. 完整下载并安装依赖
+### 2. 放置 Skill 并配置运行环境
 
 下面以 Codex 用户技能目录为例，首次安装需要 Git。使用其他宿主时替换目标路径。
 
@@ -92,13 +92,13 @@ powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1
 
 Windows CMD 用户在 Skill 目录内执行 `scripts\install_runtime.cmd`。
 
-不使用 Git：在 [GitHub Releases](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest) 下载 `psytrainer-ml-skill.zip`，将完整的 `psytrainer-ml` 文件夹解压到上述位置，再进入该目录执行安装器，跳过 `git clone`。确保路径是 `psytrainer-ml/SKILL.md`，不要多嵌套一层同名目录，也不要只下载 `SKILL.md`。
+不使用 Git：在 [GitHub Releases](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest) 下载 `psytrainer-ml-skill.zip`，将完整的 `psytrainer-ml` 文件夹解压到上述位置，再进入该目录执行 `scripts/install_runtime.py`（Windows 可用包装脚本），跳过 `git clone`。确保路径是 `psytrainer-ml/SKILL.md`，不要多嵌套一层同名目录，也不要只下载 `SKILL.md`。
 
-安装器创建 `.venv`，一次性解析并安装所有 Pipeline 依赖，包括全部 21 个模型使用的算法库。它运行 `pip check`，导入必要模块并构造全部估计器，成功后才写入 `ready: true`、`capabilities.pipeline: true` 的 `runtime.json`。任何必需依赖失败都不会留下成功标记。
+运行环境配置脚本创建 `.venv`，一次性解析并安装所有 Pipeline 依赖，包括全部 21 个模型使用的算法库。它运行 `pip check`，导入必要模块并构造全部估计器，成功后才写入 `ready: true`、`capabilities.pipeline: true` 的 `runtime.json`。此标记表示依赖检查通过；宿主发现和真实工作流需按下一步验证。任何必需依赖失败都不会留下成功标记。
 
 macOS 如遇 LightGBM 的 OpenMP 动态库错误，需要安装系统库 `brew install libomp` 后重试。安装过程中会显示原始错误。
 
-### 3. 验证训练、预测和报告
+### 3. 验证宿主发现、训练、预测和报告
 
 在安装后的 Skill 目录执行：
 
@@ -175,11 +175,11 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 
 ## 升级与常见安装问题
 
-更新完整 Skill 文件后，在原目录重跑安装器，即可补齐新增依赖。Git 安装可先运行 `git pull --ff-only`；ZIP 安装应使用新版本的完整内容，并保留自己的数据和结果。
+更新完整 Skill 文件后，在原目录重跑运行环境配置脚本，再执行冒烟测试。Git 安装可先运行 `git pull --ff-only`；ZIP 安装应使用新版本的完整内容，并保留自己的数据和结果。
 
 | 现象 | 处理方式 |
 |---|---|
-| 宿主找不到 Skill | 检查宿主技能目录与 `psytrainer-ml/SKILL.md` 层级；安装器不负责技能发现 |
+| 宿主找不到 Skill | 检查宿主技能目录与 `psytrainer-ml/SKILL.md` 层级，并按宿主要求重新加载或启用技能 |
 | 找不到支持的 Python | 安装 CPython 3.12、3.13 或 3.14，或用 `--python /path/to/python` 指定 |
 | 希望切换 `.venv` 的 Python 版本 | 用 `--python PATH --recreate`；PowerShell 使用 `-Python PATH -Recreate` |
 | 移动目录后解释器路径失效 | 在新位置用 `--recreate` 重建环境和 `runtime.json`，不要复制其他机器的 `.venv` |

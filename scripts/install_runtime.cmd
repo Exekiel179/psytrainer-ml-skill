@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-rem Install psytrainer-ml runtime on Windows (Skill install time).
+rem Configure the local Python runtime and check dependencies on Windows.
 rem Usage:
 rem   scripts\install_runtime.cmd
 rem   scripts\install_runtime.cmd --recreate

@@ -93,7 +93,7 @@ Windows/Linux 或 Python 3.13 上本地实跑；相关 CI 仍需在推送后执�
 
 2026-09-15，移除 wheel 后复验（macOS arm64）：
 
-- 从不含 wheel、虚拟环境和运行时标记的独立目录执行默认安装器，新建 CPython 3.12 环境。
+- 从不含 wheel、虚拟环境和运行时标记的独立目录执行运行环境配置脚本，新建 CPython 3.12 环境。
 - `pip check`、全部依赖导入和 21 个本地估计器构造通过；确认 `ccpl_training_models` 不存在。
 - 60 项测试中 59 项通过，仅原工厂对比按预期跳过；随机、分组、时间三种真实训练、预测、图表及 Word 报告冒烟测试全部通过。
 - 打包测试确认不包含 `vendor/` 或 PsyTrainer wheel，保留本地处理脚本；默认安装忽略遗留的 `PSYTRAINER_WHEEL` 环境变量。

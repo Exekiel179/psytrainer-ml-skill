@@ -31,7 +31,7 @@ jobs:
       - name: macOS OpenMP
         if: runner.os == 'macOS'
         run: brew install libomp
-      - name: Install complete runtime
+      - name: Configure Python runtime and check dependencies
         run: python scripts/install_runtime.py
       - name: Test real runtime
         shell: python
@@ -70,7 +70,7 @@ jobs:
           with zipfile.ZipFile('psytrainer-ml-skill.zip') as archive:
               assert archive.testzip() is None
               archive.extractall('fresh')
-      - name: Install and test published Skill in a fresh environment
+      - name: Configure runtime and test published scripts in a fresh environment
         shell: python
         run: |
           import json, os, subprocess, sys

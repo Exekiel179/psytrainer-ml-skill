@@ -13,11 +13,14 @@ metadata:
 Use for requested PsyTrainer work; invoke `/skill:psytrainer-ml` or `$psytrainer-ml`.
 Use `runtime.json` -> `python` as `$PY` for the independent Pipeline (CPython
 3.12-3.14); require `ready: true`. Missing runtime:
-follow [README.md](README.md#install-complete-runtime-required) or
+follow [README.md](README.md#setup) or
 [中文安装说明](README.zh-CN.md#安装) during setup. Keep the whole Skill in the host's
 skill directory. PsyTrainer wheel is neither bundled nor needed by Pipeline.
-Downloading the Skill alone does not install
-the runtime. Run commands from the Skill root using absolute data/output paths
+Complete setup means placing the Skill in the host's discovery directory,
+configuring Python dependencies with `scripts/install_runtime.py`, and verifying
+host discovery plus `tests/smoke_pipeline.py`. The runtime script checks dependencies;
+`ready: true` does not confirm host discovery or successful training.
+Run commands from the Skill root using absolute data/output paths
 when the user's project is elsewhere. Never bypass missing dependencies.
 
 Prefer `scripts/pipeline_train.py train --features X.csv --labels Y.csv --target score --task regression --output-dir outputs/run-01` for new analyses. It handles fold-local preprocessing, model selection, held-out evaluation, figures and `report.docx` in one call. Defaults: 20% internal holdout, 5 folds, two base models, Chinese report. Set `--question` when the research question is known.

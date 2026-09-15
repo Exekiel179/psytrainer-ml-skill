@@ -1,4 +1,4 @@
-# Install psytrainer-ml runtime on Windows (Skill install time).
+# Configure the local Python runtime and check dependencies on Windows.
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1 -Wheel 'D:\wheels\PsyTrainer-*.whl'

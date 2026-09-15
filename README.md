@@ -7,7 +7,7 @@ Standalone PsyClaw / Claude Code / Codex Skill for tabular training, batch predi
 - **Skill name / id:** `psytrainer-ml`
 - **Invoke:** `$psytrainer-ml` in Codex; `/skill:psytrainer-ml` in PsyClaw
 
-## What gets installed?
+## Capabilities
 
 This Skill combines agent instructions with local Python tools for training,
 prediction, scientific figures, and Word reports. The Pipeline supports
@@ -33,10 +33,12 @@ seven resampling methods, domain model presets and checked CV resume.
 Learned transforms fit within training folds. The holdout is excluded from
 selection/search; figures and Word reports record the actual processing and results.
 
-Setup has two parts: put the **whole Skill folder** where your host discovers
-skills, then run its runtime installer once. Copying `SKILL.md` alone or enabling
-the Skill does not install Python dependencies. The installer creates a local
-`.venv`; it does not register the Skill with your host or install Python itself.
+Complete setup has three steps: place the **whole Skill folder** in your host's
+skill directory, configure the Python runtime, then verify host discovery and
+the actual workflow. `scripts/install_runtime.py` is a runtime setup script:
+it creates `.venv`, installs dependencies and checks their availability.
+Skill discovery follows the host's loading mechanism; the smoke test verifies
+training, prediction and report generation.
 
 ## Let your agent install it
 
@@ -57,11 +59,12 @@ and any unresolved installation errors.
 
 Use `psytrainer-ml-skill.zip` from the [latest GitHub Release](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest), or clone this
 repository. The Skill package contains instructions, scripts and configuration.
-Run the installer once to download its
-Python dependencies. At task time, use the installed environment.
+Run the runtime setup script to install Python dependencies, then complete the
+verification steps below. At task time, use the configured environment.
 
-**Download `psytrainer-ml-skill.zip`, extract the complete folder, and run the
-installer.** If you clone this repository, no separate release download is needed.
+**Download `psytrainer-ml-skill.zip`, place the complete folder in your host's skill
+directory, configure the runtime and verify it.** If you clone this repository,
+no separate release download is needed.
 
 Choose the destination **before** installing the runtime:
 
@@ -77,7 +80,7 @@ configured skill directory. The destination must contain `SKILL.md` directly,
 not an extra nested archive directory. This is an independent Skill repository;
 PsyClaw's product source tree is not needed.
 
-## Install (complete runtime required)
+## Setup
 
 Install **CPython 3.12, 3.13 or 3.14** first (python.org or
 `uv python install 3.12`). Download the entire repository. The default runtime
@@ -107,16 +110,17 @@ CMD equivalent:
 scripts\install_runtime.cmd
 ```
 
-These examples install into Codex's user skill directory; substitute your host's
+These commands place the Skill in Codex's user skill directory and configure its runtime; substitute your host's
 destination when needed. If you downloaded a ZIP, extract it to that destination
-and run the installer there; skip `git clone`. An existing installation should
-be updated in place before rerunning the installer.
+and run the runtime setup script there; skip `git clone`. For an existing
+installation, update the Skill files, rerun runtime setup and repeat the smoke test.
 
-The installer selects a supported Python, creates `.venv`, and installs
+The runtime setup script selects an installed, supported Python, creates `.venv`, and installs
 **all transitive Python dependencies**, including LightGBM, XGBoost and CatBoost,
 in one pip resolution. It runs `pip check`, imports the required libraries, and
 constructs all 21 local estimators before writing `runtime.json` with
-`ready: true` and `capabilities.pipeline: true`. Any failure leaves no
+`ready: true` and `capabilities.pipeline: true`. These markers confirm dependency
+checks; host discovery and actual training are verified below. Any failure leaves no
 success marker. A data-only `--dry-run`
 does not prove the runtime works.
 
@@ -127,7 +131,7 @@ Online installation downloads third-party dependencies. On macOS, LightGBM
 may require OpenMP (`brew install libomp`). Native-library import failures stop
 installation and show the original error.
 
-### Verify and start using the Skill
+### Verify host discovery and the workflow
 
 From the installed Skill directory, run a real end-to-end check:
 
@@ -142,13 +146,13 @@ From the installed Skill directory, run a real end-to-end check:
 ```
 
 This generates synthetic data and checks random/group/time validation,
-prediction, figures and Word reports in a temporary directory. Installer
+prediction, figures and Word reports in a temporary directory. Runtime
 `ready: true` means dependency/import checks passed; this additional test checks
 the actual workflow. Codex discovers installed skills automatically; restart it
 if the Skill does not appear. Invoke `$psytrainer-ml` with your data and target.
 
 The `.venv` and `runtime.json` belong to this machine and installation path.
-After moving the folder, rerun the installer with `--recreate` (PowerShell:
+After moving the folder, rerun the runtime setup script with `--recreate` (PowerShell:
 `-Recreate`). This rebuilds `.venv`; keep datasets and results outside `.venv`.
 
 ## Contents
@@ -156,14 +160,14 @@ After moving the folder, rerun the installer with `--recreate` (PowerShell:
 | Path | Role |
 |------|------|
 | `SKILL.md` | Agent workflow |
-| `scripts/install_runtime.py` | Complete Pipeline environment |
+| `scripts/install_runtime.py` | Python runtime setup and dependency checks |
 | `scripts/model_registry.py` | Local 21-model mapping and parameter configuration |
 | `scripts/pipeline_options.py` | Local preprocessing, resampling, search and resume |
 | `scripts/install_runtime.ps1` / `.cmd` | Windows wrappers |
 | `scripts/pipeline_train.py` | Training, batch prediction and report commands |
 | `scripts/ml.py` | Data inspection and model capability queries |
 | `fixtures/` | Tiny CSVs for dry-run smoke checks |
-| `tests/` | Wrapper + installer unit tests |
+| `tests/` | Unit tests and end-to-end workflow checks |
 
 ## Quick start (after install)
 
