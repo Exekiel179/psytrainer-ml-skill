@@ -39,7 +39,8 @@ class SkillArchiveTests(unittest.TestCase):
             build(root, commit, second)
             self.assertEqual(first.read_bytes(), second.read_bytes())
             with zipfile.ZipFile(first) as archive:
-                self.assertEqual(archive.read("psytrainer-ml/SKILL.md"), b"committed\n")
+                committed = subprocess.check_output(["git", "show", f"{commit}:SKILL.md"], cwd=root)
+                self.assertEqual(archive.read("psytrainer-ml/SKILL.md"), committed)
                 self.assertNotIn("psytrainer-ml/scripts/local-secret.txt", archive.namelist())
                 self.assertEqual(archive.comment.decode(), commit)
             with self.assertRaises(FileExistsError):
