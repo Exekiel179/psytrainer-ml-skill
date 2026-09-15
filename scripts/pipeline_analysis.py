@@ -176,25 +176,27 @@ def analyze(directory, summary):
     primary = {"f1": "f1_macro", "precision": "precision_macro", "recall": "recall_macro"}.get(summary["metric"], summary["metric"])
     result = metrics.set_index("metric").loc[primary]
     if pd.notna(result["gain"]):
-        finding("baseline", f"测试集 {primary} 为 {result.estimate:.4g}，开发集拟合的基线为 {result.baseline:.4g}；按指标优劣方向计算的差值为 {result.gain:.4g}（正值表示改善）。" +
-                (f"配对增益的 95% 区间为 [{result.gain_lower:.4g}, {result.gain_upper:.4g}]。" if pd.notna(result.gain_lower) else "当前设计未给出增益区间。"),
+        finding("baseline", f"独立测试 {primary}={result.estimate:.4g}，开发集拟合的简单基线={result.baseline:.4g}；有向增益={result.gain:.4g}（正值更好）。" +
+                (f"配对增益的 95% 区间为 [{result.gain_lower:.4g}, {result.gain_upper:.4g}]。" if pd.notna(result.gain_lower) else "当前设计未给出可靠的增益区间。") +
+                "基线仅用于评价；该比较不能替代实际应用的最低效益标准。",
                 f"Held-out {primary}={result.estimate:.4g}; development-fitted dummy baseline={result.baseline:.4g}; oriented gain={result.gain:.4g} (positive is better). " +
-                (f"Paired 95% interval [{result.gain_lower:.4g}, {result.gain_upper:.4g}]. " if pd.notna(result.gain_lower) else "No supported gain interval for this design. "), "metric-intervals.csv; baseline-predictions.csv")
+                (f"Paired 95% interval [{result.gain_lower:.4g}, {result.gain_upper:.4g}]. " if pd.notna(result.gain_lower) else "No supported gain interval for this design. ") +
+                "This comparison does not establish practical usefulness.", "metric-intervals.csv; baseline-predictions.csv")
     cv = pd.read_csv(directory / "cv-scores.csv")
     if "train_score" in cv:
         selected = cv[cv.model == summary["selected_model"]]
         direction = 1 if summary["direction"] == "higher" else -1
         gap = float(direction * (selected.train_score - selected.score).mean())
-        finding("generalization", f"所选模型训练与验证的平均差值为 {gap:.4g}（{summary['metric']}，按正值表示训练表现更好定向）。各折验证值介于 {selected.score.min():.4g} 与 {selected.score.max():.4g}。该差值描述模型在拟合样本与未参与拟合样本上的表现差异，折间范围同时反映划分间的变异。",
-                f"The selected model's mean training-validation difference was {gap:.4g} ({summary['metric']}; oriented to favor training). Validation scores ranged from {selected.score.min():.4g} to {selected.score.max():.4g}. The difference describes transfer beyond the fitting samples; the range describes variation across folds.", "cv-scores.csv")
+        finding("generalization", f"所选模型的训练/验证有向差距均值为 {gap:.4g}（{summary['metric']}，正值表示训练更好）。折间验证范围为 [{selected.score.min():.4g}, {selected.score.max():.4g}]。较大差距可提示过拟合或样本划分难度差异，应在开发集内验证正则化、简化模型或增加样本的作用。",
+                f"Selected model mean oriented training-validation gap={gap:.4g} ({summary['metric']}; positive favors training); validation range [{selected.score.min():.4g}, {selected.score.max():.4g}]. A large gap can reflect overfitting or split difficulty; assess regularization, simpler models or more data within development data.", "cv-scores.csv")
     if summary["task"] == "regression":
         bins = regression_bins(pred)
         bins.to_csv(directory / "regression-bins.csv", index=False)
         residual = pd.to_numeric(pred.observed) - pd.to_numeric(pred.predicted)
         pred["absolute_error"] = residual.abs()
         q50, q90 = residual.abs().quantile([.5, .9])
-        finding("errors", f"测试集平均残差为 {residual.mean():.4g}，绝对误差的中位数为 {q50:.4g}，第 90 百分位数为 {q90:.4g}。残差定义为观测值减预测值，正值表示低估。中位数与高百分位数分别概括典型偏差及误差分布的上部范围。",
-                f"Mean test residual was {residual.mean():.4g}; median absolute error was {q50:.4g} and its 90th percentile was {q90:.4g}. Residuals are observed minus predicted values, so positive values indicate underprediction. The median and upper percentile summarize typical error and the upper part of its distribution.", "regression-bins.csv; error-cases.csv")
+        finding("errors", f"测试残差均值={residual.mean():.4g}，绝对误差中位数={q50:.4g}、90 分位数={q90:.4g}。正残差表示低估。分箱图展示误差是否随预测水平变化；误差带为箱内残差的 10–90 分位数，不是置信区间或预测区间。优先检查大误差样本的数据质量，再在开发集检验非线性或异方差模型。",
+                f"Test mean residual={residual.mean():.4g}; median absolute error={q50:.4g}, 90th percentile={q90:.4g}. Positive residuals indicate underprediction. Bins reveal error variation across predictions; bands are within-bin residual 10th–90th percentiles, not confidence/prediction intervals. Inspect large-error data quality and investigate nonlinear or heteroscedastic models within development data.", "regression-bins.csv; error-cases.csv")
         pred.sort_values("absolute_error", ascending=False).to_csv(directory / "error-cases.csv", index=False)
     else:
         precision, recall, f1, support = precision_recall_fscore_support(pred.observed, pred.predicted,
@@ -204,8 +206,8 @@ def analyze(directory, summary):
         table.to_csv(directory / "class-metrics.csv", index=False)
         present = table[table.n > 0]
         weakest = present.loc[present.recall.idxmin()]
-        finding("class_errors", f"测试集中召回率最低的已出现类别为 {weakest['class']}（recall={weakest.recall:.3f}，n={int(weakest.n)}）。该类别中 {weakest.recall:.1%} 的记录被正确识别；混淆矩阵给出其余记录的预测去向。",
-                f"The lowest recall among observed test classes was for {weakest['class']} (recall={weakest.recall:.3f}, n={int(weakest.n)}). The model correctly retrieved {weakest.recall:.1%} of this class; the confusion matrix identifies predictions for the remaining records.", "class-metrics.csv; confusion-matrix.csv")
+        finding("class_errors", f"测试集中召回率最低的已出现类别为 {weakest['class']}：recall={weakest.recall:.3f}，n={int(weakest.n)}。同时检查类别样本量与混淆去向，避免仅凭总准确率评价。类别权重、重采样和决策阈值的改进需在开发集内验证。",
+                f"Lowest observed-class recall: {weakest['class']} (recall={weakest.recall:.3f}, n={int(weakest.n)}). Check support and confusion destinations alongside overall accuracy. Validate class weights, resampling and threshold changes only within development data.", "class-metrics.csv; confusion-matrix.csv")
         pred["error"] = pred.observed != pred.predicted
         pred.sort_values("error", ascending=False).to_csv(directory / "error-cases.csv", index=False)
         if len(summary["classes"]) == 2 and "positive_score" in pred:
@@ -215,8 +217,8 @@ def analyze(directory, summary):
                 calibration.to_csv(directory / "calibration.csv", index=False)
                 ece = float(np.average(abs(calibration.observed_fraction - calibration.mean_probability), weights=calibration.n))
                 brier = float(metrics.set_index("metric").loc["brier", "estimate"])
-                finding("calibration", f"测试集 Brier 分数为 {brier:.4g}，基于 10 个等宽分箱的预期校准误差（ECE）为 {ece:.4g}。Brier 分数是预测概率与实际二分类结果的均方差；ECE 是各箱预测概率与观测阳性比例绝对差的样本量加权平均。两者均以较低值表示较小误差，ECE 的数值同时依赖分箱与样本量。",
-                        f"Test Brier score was {brier:.4g}; expected calibration error (ECE) across 10 equal-width bins was {ece:.4g}. Brier is the mean squared probability error. ECE is the count-weighted mean absolute difference between predicted and observed positive fractions across bins. Lower values indicate less error; ECE also depends on binning and sample size.", "calibration.csv; thresholds.csv; metric-intervals.csv")
+                finding("calibration", f"测试概率 Brier={brier:.4g}，10 个等宽箱的 ECE={ece:.4g}（两者越低越好；ECE 依赖分箱和样本量）。校准图同时显示每箱样本数，空箱不绘制。阈值曲线只描述敏感度、特异度和阳性预测比例的权衡，不据此挑选测试集最优阈值；需要调整时在开发集交叉拟合校准。",
+                        f"Test probability Brier={brier:.4g}; 10 equal-width-bin ECE={ece:.4g} (lower is better; ECE depends on bins and sample size). Calibration includes bin counts and omits empty bins. Threshold curves describe sensitivity/specificity/workload trade-offs, without selecting a test-optimal threshold. Fit any calibration using development cross-fitting.", "calibration.csv; thresholds.csv; metric-intervals.csv")
             else:
                 finding("decision_score", "模型提供决策分数而非概率，因此仅绘制阈值权衡，不计算 Brier 或概率校准。", "The model exposes decision scores, not probabilities; threshold trade-offs are available but probability calibration and Brier are omitted.", "test-predictions.csv")
     if summary["split"] in ("group", "time"):
@@ -252,8 +254,8 @@ def analyze(directory, summary):
     if (directory / "importance.csv").exists():
         imp = pd.read_csv(directory / "importance.csv", dtype={"feature": str}, keep_default_na=False)
         leader = imp.iloc[0]
-        finding("reliance", f"置换重要性最高的特征为 {leader.feature}，评分下降均值为 {leader['mean']:.4g}，重复间标准差为 {leader.sd:.4g}。{len(imp)} 个特征中有 {int((imp['mean'] <= 0).sum())} 个的平均重要性不大于零，表示在当前模型及置换条件下未观察到平均评分下降。",
-                f"The highest permutation importance was for {leader.feature}, with mean score decrease {leader['mean']:.4g} and repeat SD {leader.sd:.4g}. Of {len(imp)} features, {int((imp['mean'] <= 0).sum())} had nonpositive mean importance: their permutations produced no average score decrease under the fitted model and current procedure.", "importance.csv; importance-repeats.csv; feature-correlations.csv")
+        finding("reliance", f"置换重要性最高的特征为 {leader.feature}：均值={leader['mean']:.4g}，重复间标准差={leader.sd:.4g}；{int((imp['mean'] <= 0).sum())}/{len(imp)} 个特征均值不大于零。重要性表示当前模型的预测依赖，不给出效应方向。需要删减变量时，应在开发集内按相关特征块做消融并重新验证，不能按测试重要性直接删列。",
+                f"Highest permutation reliance: {leader.feature}, mean={leader['mean']:.4g}, repeat SD={leader.sd:.4g}; {int((imp['mean'] <= 0).sum())}/{len(imp)} features have nonpositive mean importance. Reliance gives no effect direction. Evaluate correlated-feature-block ablations within development data before simplifying; do not remove features based on test importance.", "importance.csv; importance-repeats.csv; feature-correlations.csv")
     result = {"schema": "psytrainer-diagnostics/v1", "interval": interval, "findings": findings,
               "test_n": len(pred), "limitations": ["No causal claims or automatic test-driven tuning.",
               "No confidence bands for calibration, thresholds or strata; these are descriptive.",

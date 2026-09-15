@@ -166,15 +166,6 @@ question. Reports are deterministic templates filled from measured results,
 with no LLM calls, invented references or novelty claims. Report regeneration
 reads JSON/CSVs rather than loading a pickle or retraining.
 
-Reports use an academic abstract/methods/results/discussion structure, with
-plain-language metric definitions in an appendix. Results retain measured values,
-baseline direction and supported intervals. General limitations are consolidated
-in the discussion; figure notes explain only their local statistical meaning.
-The editorial approach adapts ResearchFlow's `academic-defensive-editing`
-principles: remove repeated disclaimers, preserve consequential qualifications,
-and avoid strengthening claims. This is built into local templates and requires
-no additional Skill or model call.
-
 Report organization adapts the question/outline/evidence/consistency principles
 of academic-paper-strategist and academic-paper-composer to empirical ML.
 Figure design borrows nature-figure's white backgrounds, restrained palette,
