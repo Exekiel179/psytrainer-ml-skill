@@ -216,3 +216,6 @@ This Skill uses the [MIT License](LICENSE). See [NOTICE.md](NOTICE.md) for third
 
 The smoke test runs real training, prediction, figures and Word reports on
 synthetic data using random, grouped and temporal validation.
+
+For maintainers, the [release procedure](references/releasing.md) describes
+automated archive construction, cross-platform verification and publication.

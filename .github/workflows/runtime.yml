@@ -3,20 +3,35 @@ name: Complete runtime
 on:
   push:
   pull_request:
-  release:
-    types: [published]
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: Published Skill version to test
-        required: true
-        default: v0.1.0
 
 permissions:
   contents: read
 
+concurrency:
+  group: runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test archive construction
+        run: python -m unittest discover -s tests -p test_build_skill.py -v
+      - name: Build exact committed Skill
+        run: python scripts/build_skill.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skill-package
+          path: dist/psytrainer-ml-skill.zip
+          if-no-files-found: error
+
   runtime:
+    needs: build
     strategy:
       fail-fast: false
       matrix:
@@ -24,74 +39,73 @@ jobs:
         python: ['3.12', '3.13', '3.14']
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - name: macOS OpenMP
-        if: runner.os == 'macOS'
-        run: brew install libomp
-      - name: Configure Python runtime and check dependencies
-        run: python scripts/install_runtime.py
-      - name: Test real runtime
-        shell: python
-        run: |
-          import json, subprocess
-          runtime = json.load(open('runtime.json'))
-          assert runtime['ready']
-          subprocess.run([runtime['python'], '-m', 'unittest', 'discover', '-s', 'tests', '-v'], check=True)
-          subprocess.run([runtime['python'], '-c', 'import importlib.util; assert importlib.util.find_spec("ccpl_training_models") is None'], check=True)
-          subprocess.run([runtime['python'], 'tests/smoke_pipeline.py'], check=True)
-
-  released-skill:
-    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/download-artifact@v4
         with:
-          python-version: '3.14'
-      - name: macOS OpenMP
-        if: runner.os == 'macOS'
-        run: brew install libomp
-      - name: Download published Skill
+          name: skill-package
+      - name: Extract the distributable into a fresh directory
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         shell: python
         run: |
-          import os, subprocess, zipfile
-          subprocess.run(['gh', 'release', 'download', os.environ['RELEASE_TAG'],
-                          '--pattern', 'psytrainer-ml-skill.zip'], check=True)
+          import os, zipfile
+          from pathlib import Path
           with zipfile.ZipFile('psytrainer-ml-skill.zip') as archive:
               assert archive.testzip() is None
+              assert archive.comment.decode() == os.environ['EXPECTED_COMMIT']
               archive.extractall('fresh')
-      - name: Configure runtime and test published scripts in a fresh environment
+          root = Path('fresh/psytrainer-ml')
+          assert (root / 'SKILL.md').is_file()
+          assert not (root / '.venv').exists()
+          assert not (root / 'runtime.json').exists()
+          assert not list(root.rglob('*.whl'))
+      - name: macOS OpenMP
+        if: runner.os == 'macOS'
+        run: brew install libomp
+      - name: Configure and test the packaged Skill
         shell: python
         run: |
           import json, os, subprocess, sys
           from pathlib import Path
           root = Path('fresh/psytrainer-ml').resolve()
-          assert not (root / '.venv').exists()
-          assert not (root / 'runtime.json').exists()
-          assert (root / 'SKILL.md').is_file()
-          assert not list(root.rglob('PsyTrainer-*.whl'))
           env = dict(os.environ, PYTHONNOUSERSITE='1')
-          if os.name == 'nt':
-              command = ['cmd', '/c', 'scripts\\install_runtime.cmd']
-          else:
-              command = [sys.executable, 'scripts/install_runtime.py']
-          subprocess.run(command, cwd=root, env=env, check=True)
-          runtime = json.loads((root / 'runtime.json').read_text())
-          assert runtime['ready'] and all(runtime['imports'].values())
-          subprocess.run([runtime['python'], '-m', 'unittest', 'discover', '-s', 'tests', '-v'],
+          subprocess.run([sys.executable, 'scripts/install_runtime.py', '--python', sys.executable],
                          cwd=root, env=env, check=True)
+          runtime = json.loads((root / 'runtime.json').read_text(encoding='utf-8'))
+          assert runtime['ready'] and all(runtime['imports'].values())
           assert not runtime['capabilities']['legacy']
           subprocess.run([runtime['python'], '-c', 'import importlib.util; assert importlib.util.find_spec("ccpl_training_models") is None'],
                          cwd=root, env=env, check=True)
-          if (root / 'tests/smoke_pipeline.py').exists():
-              subprocess.run([runtime['python'], 'tests/smoke_pipeline.py'], cwd=root, env=env, check=True)
+          subprocess.run([runtime['python'], '-m', 'unittest', 'discover', '-s', 'tests', '-v'],
+                         cwd=root, env=env, check=True)
+          subprocess.run([runtime['python'], 'tests/smoke_pipeline.py'], cwd=root, env=env, check=True)
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [build, runtime]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: skill-package
+      - name: Publish the verified archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: python
+        run: |
+          import os, re, subprocess
+          from pathlib import Path
+          tag = os.environ['RELEASE_TAG']
+          assert re.fullmatch(r'v\d+\.\d+\.\d+', tag), 'Use a stable vMAJOR.MINOR.PATCH tag'
+          subprocess.run(['gh', 'release', 'create', tag, 'psytrainer-ml-skill.zip',
+                          '--verify-tag', '--draft', '--title', tag, '--generate-notes'], check=True)
+          subprocess.run(['gh', 'release', 'download', tag, '--pattern', 'psytrainer-ml-skill.zip',
+                          '--dir', 'downloaded'], check=True)
+          assert Path('psytrainer-ml-skill.zip').read_bytes() == Path('downloaded/psytrainer-ml-skill.zip').read_bytes()
+          subprocess.run(['gh', 'release', 'edit', tag, '--draft=false', '--latest'], check=True)

@@ -197,6 +197,8 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 .venv/bin/python tests/smoke_pipeline.py
 ```
 
+维护者发布版本时，按[发布流程](references/releasing.md)执行自动构建、跨平台验证和 Release 发布。
+
 ## 许可与模型文件
 
 本 Skill 使用 [MIT 许可](LICENSE)，第三方说明见 [NOTICE.md](NOTICE.md)。预测会加载 joblib/pickle 模型文件，只加载可信来源的模型。
