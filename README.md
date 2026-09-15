@@ -5,7 +5,7 @@
 Standalone PsyClaw / Claude Code / Codex Skill for tabular training, batch prediction and analysis reports.
 
 - **Skill name / id:** `psytrainer-ml`
-- **Invoke:** `$psytrainer-ml` in Codex; `/skill:psytrainer-ml` in PsyClaw
+- **Invoke:** `/psytrainer-ml` in Claude Code; `$psytrainer-ml` in Codex; `/skill:psytrainer-ml` in PsyClaw
 
 ## Capabilities
 
@@ -13,6 +13,9 @@ This Skill combines agent instructions with local Python tools for training,
 prediction, scientific figures, and Word reports. The Pipeline supports
 9 classification and 12 regression algorithms, with integrated validation,
 preprocessing and reporting.
+Reports explain the task, data splits, preprocessing and metrics for readers
+without machine-learning experience. Each diagnostic figure includes a reading
+guide, available measured findings and interpretation limits.
 It also provides bounded grid/random search, forward/F-threshold selection,
 seven resampling methods, domain model presets and checked CV resume.
 
@@ -33,37 +36,43 @@ seven resampling methods, domain model presets and checked CV resume.
 Learned transforms fit within training folds. The holdout is excluded from
 selection/search; figures and Word reports record the actual processing and results.
 
-Complete setup has three steps: place the **whole Skill folder** in your host's
-skill directory, configure the Python runtime, then verify host discovery and
-the actual workflow. `scripts/install_runtime.py` is a runtime setup script:
-it creates `.venv`, installs dependencies and checks their availability.
-Skill discovery follows the host's loading mechanism; the smoke test verifies
-training, prediction and report generation.
+Place the **whole Skill folder** in your host's skill directory and run
+`scripts/install_runtime.py` once. It creates `.venv` without downloading model
+libraries. Each task checks its dependencies and installs missing or incompatible
+packages before work. Load the Skill through your host and start using it;
+sample training is not part of user setup.
 
 ## Let your agent install it
 
 Give your local coding agent this request (it needs terminal and network access):
 
 ```text
-Install https://github.com/Exekiel179/psytrainer-ml-skill into this host's skill directory.
-Follow the README setup section to configure and verify it; report the location and result.
+Install the latest Release Skill ZIP from https://github.com/Exekiel179/psytrainer-ml-skill following references/setup.md.
 ```
+
+For Claude Code, use the explicit destination:
+
+```text
+Install the latest Release Skill ZIP from https://github.com/Exekiel179/psytrainer-ml-skill into ~/.claude/skills/psytrainer-ml and run scripts/install_runtime.py.
+```
+
+Agents can use the [short setup guide](references/setup.md); load `SKILL.md` for
+tasks and read other references only as needed. Detailed Word explanations are
+generated locally, so they do not require repeated model calls or report ingestion.
 
 ## Download the Skill
 
-Use `psytrainer-ml-skill.zip` from the [latest GitHub Release](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest), or clone this
-repository. The Skill package contains instructions, scripts and configuration.
-Run the runtime setup script to install Python dependencies, then complete the
-verification steps below. At task time, use the configured environment.
-
-**Download `psytrainer-ml-skill.zip`, place the complete folder in your host's skill
-directory, configure the runtime and verify it.** If you clone this repository,
-no separate release download is needed.
+Use `psytrainer-ml-skill.zip` from the [latest GitHub Release](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest).
+It contains runtime instructions, scripts and configuration; development tests
+and sample datasets are excluded. Cloning the repository is an alternative for
+developers and includes those files. Run the runtime setup script after extraction.
 
 Choose the destination **before** installing the runtime:
 
 | Host / scope | Complete Skill folder |
 |---|---|
+| Claude Code, current user | `~/.claude/skills/psytrainer-ml` |
+| Claude Code, current project | `<project>/.claude/skills/psytrainer-ml` |
 | Codex, current user | `~/.agents/skills/psytrainer-ml` |
 | Codex, current project | `<project>/.agents/skills/psytrainer-ml` |
 | PsyClaw, current user | `~/.psyclaw/skills/psytrainer-ml` |
@@ -74,27 +83,31 @@ configured skill directory. The destination must contain `SKILL.md` directly,
 not an extra nested archive directory. This is an independent Skill repository;
 PsyClaw's product source tree is not needed.
 
+Claude Code reads `.claude/skills`, not Codex's `.agents/skills`. Downloading this
+repository into an ordinary project folder or only configuring Python does not
+register a Claude Code skill. See [Claude Code skill locations](https://code.claude.com/docs/en/skills#choose-where-skills-load).
+
 ## Setup
 
 Install **CPython 3.12, 3.13 or 3.14** first (python.org or
-`uv python install 3.12`). Download the entire repository. The default runtime
+`uv python install 3.12`). Extract the complete `psytrainer-ml` folder from the
+Release ZIP into the chosen host directory. Git is not required. The default runtime
 supports all 21 Pipeline models.
+
+The following commands use Claude Code's user directory. For Codex substitute
+`$HOME/.agents/skills/psytrainer-ml`; for PsyClaw use `$HOME/.psyclaw/skills/psytrainer-ml`.
 
 ### macOS / Linux
 
 ```bash
-mkdir -p "$HOME/.agents/skills"
-git clone https://github.com/Exekiel179/psytrainer-ml-skill "$HOME/.agents/skills/psytrainer-ml"
-cd "$HOME/.agents/skills/psytrainer-ml"
+cd "$HOME/.claude/skills/psytrainer-ml"
 python3 scripts/install_runtime.py
 ```
 
 ### Windows
 
 ```powershell
-New-Item -ItemType Directory -Force "$HOME/.agents/skills" | Out-Null
-git clone https://github.com/Exekiel179/psytrainer-ml-skill "$HOME/.agents/skills/psytrainer-ml"
-Set-Location "$HOME/.agents/skills/psytrainer-ml"
+Set-Location "$HOME/.claude/skills/psytrainer-ml"
 powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1
 ```
 
@@ -104,19 +117,21 @@ CMD equivalent:
 scripts\install_runtime.cmd
 ```
 
-These commands place the Skill in Codex's user skill directory and configure its runtime; substitute your host's
-destination when needed. If you downloaded a ZIP, extract it to that destination
-and run the runtime setup script there; skip `git clone`. For an existing
-installation, update the Skill files, rerun runtime setup and repeat the smoke test.
+These commands configure the runtime after extraction to Claude Code's user skill directory;
+substitute your host's destination when needed. To upgrade, replace the Skill files,
+preserve `.venv` and your data/results, and rerun setup.
 
-The runtime setup script selects an installed, supported Python, creates `.venv`, and installs
-**all transitive Python dependencies**, including LightGBM, XGBoost and CatBoost,
-in one pip resolution. It runs `pip check`, imports the required libraries, and
-constructs all 21 local estimators before writing `runtime.json` with
-`ready: true` and `capabilities.pipeline: true`. These markers confirm dependency
-checks; host discovery and actual training are verified below. Any failure leaves no
-success marker. A data-only `--dry-run`
-does not prove the runtime works.
+The setup script selects a supported Python and creates `.venv`. `runtime.json`
+with `ready: true` records that the environment exists, not that every package is
+installed. Every task invocation checks current dependency versions and imports.
+Satisfied dependencies require no network downloads.
+
+Default training installs core modeling, plotting and Word report libraries.
+LightGBM, XGBoost and CatBoost are installed only when selected; resampling adds
+imbalanced-learn. Prediction repairs dependencies required by the saved model.
+Report regeneration does not install unrelated model libraries. Use
+`--packages xgboost` to preinstall a specific package, or `--all` only for explicit
+full preinstallation and release QA. Setup never runs sample training.
 
 Existing Python 3.12/3.13 environments are supported. To change the interpreter,
 use `--python PATH --recreate` (PowerShell: `-Python PATH -Recreate`).
@@ -125,29 +140,56 @@ Online installation downloads third-party dependencies. On macOS, LightGBM
 may require OpenMP (`brew install libomp`). Native-library import failures stop
 installation and show the original error.
 
-### Verify host discovery and the workflow
+### Load the Skill
 
-From the installed Skill directory, run a real end-to-end check:
+Invoke `/psytrainer-ml` in Claude Code, `$psytrainer-ml` in Codex, or
+`/skill:psytrainer-ml` in PsyClaw. Claude Code can also select the Skill for requests
+about tabular model training, prediction and Word analysis reports.
 
-```bash
-# macOS / Linux
-.venv/bin/python tests/smoke_pipeline.py
-```
-
-```powershell
-# Windows PowerShell
-& .\.venv\Scripts\python.exe tests\smoke_pipeline.py
-```
-
-This generates synthetic data and checks random/group/time validation,
-prediction, figures and Word reports in a temporary directory. Runtime
-`ready: true` means dependency/import checks passed; this additional test checks
-the actual workflow. Codex discovers installed skills automatically; restart it
-if the Skill does not appear. Invoke `$psytrainer-ml` with your data and target.
+If Claude Code does not recognize it, confirm that
+`~/.claude/skills/psytrainer-ml/SKILL.md` exists, then open a new session and type
+`/psytrainer-ml`. Project installations only apply within their project scope.
+If the path is correct, check skill-disable settings or a conflicting skill name.
+Reinstalling Python dependencies does not repair host discovery.
 
 The `.venv` and `runtime.json` belong to this machine and installation path.
 After moving the folder, rerun the runtime setup script with `--recreate` (PowerShell:
 `-Recreate`). This rebuilds `.venv`; keep datasets and results outside `.venv`.
+
+### Slow or interrupted networks
+
+Choose a reachable package index for this run, for example the
+[Tsinghua PyPI mirror](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/) in China:
+
+```bash
+python3 scripts/install_runtime.py --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1 -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+- pip is the default and retains its cache and index settings. Explicit index, installer and timeout options are saved in this Skill's `runtime.json` for subsequent task repairs, without changing global settings.
+- With uv already installed, add `--installer uv` (PowerShell: `-Installer uv`) for concurrent downloads and caching. uv uses separate configuration/cache and does not read pip settings; pass `--index-url` when needed. See [uv documentation](https://docs.astral.sh/uv/pip/compatibility/).
+- Defaults: 20-second network timeout, 2 retries, 600-second installation budget. Adjust `--timeout`, `--retries`, `--max-seconds` (PowerShell: `-Timeout`, `-Retries`, `-MaxSeconds`).
+- After interruption, rerun the same command to reuse installed packages and completed cached downloads. Incomplete files may need downloading again. Do not use `--recreate` for routine retries. See [pip caching](https://pip.pypa.io/en/stable/topics/caching/).
+- Check selected packages offline: `python3 scripts/install_runtime.py --check --packages xgboost`. Plain `--check` checks the environment; `--check --all` checks every dependency. PowerShell: `-Check -Packages xgboost` or `-Check -All`.
+- With a dependency directory matching the target platform and Python, use `--wheelhouse PATH` (PowerShell: `-Wheelhouse PATH`) for offline installation.
+
+Only prebuilt packages are accepted to avoid lengthy source builds. A missing
+compatible package fails explicitly. Maintainers test real training, prediction
+and reports before release.
+
+When dependency installation fails, the task stops and returns the required
+packages and a repair command targeting the correct interpreter. The agent must
+show that command for manual installation or execute it for the user, select a
+reachable `--index-url` or local `--wheelhouse`, and rerun the original task after
+repair. Reporting a network failure alone is insufficient; never skip required
+packages or report task success. For example:
+
+```bash
+python3 scripts/install_runtime.py --packages xgboost --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+```
 
 ## Contents
 
@@ -160,8 +202,6 @@ After moving the folder, rerun the runtime setup script with `--recreate` (Power
 | `scripts/install_runtime.ps1` / `.cmd` | Windows wrappers |
 | `scripts/pipeline_train.py` | Training, batch prediction and report commands |
 | `scripts/ml.py` | Data inspection and model capability queries |
-| `fixtures/` | Tiny CSVs for dry-run smoke checks |
-| `tests/` | Unit tests and end-to-end workflow checks |
 
 ## Quick start (after install)
 
@@ -201,7 +241,9 @@ Use `scripts/ml.py capabilities` to list supported models and processing options
 Prediction loads `pipeline.joblib` via joblib/pickle. Only load models from trusted sources.
 This Skill uses the [MIT License](LICENSE). See [NOTICE.md](NOTICE.md) for third-party notices.
 
-## Verification
+## Development Verification
+
+Run these commands in the source checkout. Release downloads omit `tests/` and `fixtures/`.
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v

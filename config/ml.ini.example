@@ -1,9 +1,6 @@
 # Paths may be absolute or relative to this file.
 
 [PsyTrainer]
-# Smoke-check against bundled fixtures (dry-run only unless PsyTrainer is installed):
-# feature_file = ../fixtures/features.csv
-# label_file = ../fixtures/labels.csv
 feature_file = ../data/features.csv
 label_file = ../data/labels.csv
 output_dir = ../outputs/training

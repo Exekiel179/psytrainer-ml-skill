@@ -21,6 +21,9 @@ class SkillArchiveTests(unittest.TestCase):
                 (path / "fixture.txt").write_text("fixture\n")
         for name in REQUIRED:
             (root / name).write_text("committed\n")
+        for name in ("tests", "fixtures"):
+            (root / name).mkdir()
+            (root / name / "sample.txt").write_text("development only\n")
         self.commit(root)
 
     def commit(self, root):
@@ -44,6 +47,8 @@ class SkillArchiveTests(unittest.TestCase):
                 committed = subprocess.check_output(["git", "show", f"{commit}:SKILL.md"], cwd=root)
                 self.assertEqual(archive.read("psytrainer-ml/SKILL.md"), committed)
                 self.assertNotIn("psytrainer-ml/scripts/local-secret.txt", archive.namelist())
+                self.assertFalse(any(n.startswith(("psytrainer-ml/tests/", "psytrainer-ml/fixtures/"))
+                                     for n in archive.namelist()))
                 self.assertEqual(archive.comment.decode(), commit)
             with self.assertRaises(FileExistsError):
                 build(root, commit, first)

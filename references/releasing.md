@@ -7,7 +7,9 @@ Push reviewed changes to `main`, then create and push a new stable version tag
 files only. Every push and pull request tests that archive in fresh environments
 across Windows, macOS and Linux with Python 3.12, 3.13 and 3.14. Each environment
 runs dependency checks, the full test suite and real training/prediction/report
-smoke tests. The ZIP comment identifies its exact source commit.
+smoke tests. Development `tests/` and `fixtures/` are excluded from downloads;
+CI adds them from the matching source revision for release QA only. Users do not
+run sample training during setup. The ZIP comment identifies its exact source commit.
 
 A stable tag push publishes only after all nine environments succeed. The publish
 job uploads the same tested archive to a draft Release, downloads it to confirm
@@ -21,4 +23,5 @@ step before retrying; the workflow never overwrites an existing release.
 Local packaging: `python scripts/build_skill.py --ref HEAD --output /path/to/psytrainer-ml-skill.zip`.
 The destination must not exist. Local uncommitted and untracked files are excluded.
 This package contains the Skill files; the runtime setup script installs Python
-dependencies on the destination machine.
+dependencies on demand on the destination machine. Release QA explicitly uses
+`scripts/install_runtime.py --all` to exercise every supported algorithm.

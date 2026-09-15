@@ -31,6 +31,8 @@ class BundleTests(unittest.TestCase):
                 self.assertIn("psytrainer-ml/README.zh-CN.md", archive.namelist())
                 self.assertFalse(any("/vendor/" in n or "psytrainer-0." in n.lower() for n in archive.namelist()))
                 self.assertIn("psytrainer-ml/scripts/pipeline_options.py", archive.namelist())
+                self.assertFalse(any(n.startswith(("psytrainer-ml/tests/", "psytrainer-ml/fixtures/"))
+                                     for n in archive.namelist()))
                 self.assertFalse(any("/.venv" in n or n.endswith("/runtime.json") for n in archive.namelist()))
 
     def test_failed_download_does_not_publish_zip(self):

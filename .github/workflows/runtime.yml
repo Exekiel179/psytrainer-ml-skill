@@ -39,9 +39,14 @@ jobs:
         python: ['3.12', '3.13', '3.14']
     runs-on: ${{ matrix.os }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          path: qa-source
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: qa-source/requirements.txt
       - uses: actions/download-artifact@v4
         with:
           name: skill-package
@@ -61,6 +66,15 @@ jobs:
           assert not (root / '.venv').exists()
           assert not (root / 'runtime.json').exists()
           assert not list(root.rglob('*.whl'))
+          assert not (root / 'tests').exists()
+          assert not (root / 'fixtures').exists()
+      - name: Add matching development tests for release QA only
+        shell: python
+        run: |
+          import shutil
+          from pathlib import Path
+          for name in ('tests', 'fixtures'):
+              shutil.copytree(Path('qa-source') / name, Path('fresh/psytrainer-ml') / name)
       - name: macOS OpenMP
         if: runner.os == 'macOS'
         run: brew install libomp
@@ -71,7 +85,7 @@ jobs:
           from pathlib import Path
           root = Path('fresh/psytrainer-ml').resolve()
           env = dict(os.environ, PYTHONNOUSERSITE='1')
-          subprocess.run([sys.executable, 'scripts/install_runtime.py', '--python', sys.executable],
+          subprocess.run([sys.executable, 'scripts/install_runtime.py', '--all', '--python', sys.executable],
                          cwd=root, env=env, check=True)
           runtime = json.loads((root / 'runtime.json').read_text(encoding='utf-8'))
           assert runtime['ready'] and all(runtime['imports'].values())

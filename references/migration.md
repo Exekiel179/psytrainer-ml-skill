@@ -80,8 +80,9 @@ The two environments coexist; neither installation deletes the other's marker.
 `--recreate` replaces only the selected mode's environment.
 
 Pre-migration `.venv` installations containing PsyTrainer continue to work; no
-automatic uninstall or INI conversion occurs. Reinstall to refresh dependencies
-and runtime metadata. Do not replace original INI execution with Pipeline and
+automatic uninstall or INI conversion occurs. Setup refreshes runtime metadata;
+Pipeline commands check and repair their task dependencies on each invocation.
+Do not replace original INI execution with Pipeline and
 claim identical scores: CV design, preprocessing and scoring differ intentionally.
 
 Saved Pipeline v1 joblib dictionaries retain the same schema and standard-library

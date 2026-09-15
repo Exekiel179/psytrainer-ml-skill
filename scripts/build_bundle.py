@@ -41,7 +41,7 @@ def main() -> int:
         ], check=True)
         for name in ("README.md", "README.zh-CN.md", "SKILL.md", "NOTICE.md", "LICENSE", "requirements.txt"):
             shutil.copy2(ROOT / name, staging / name)
-        for name in ("scripts", "config", "fixtures", "references", "agents", "tests"):
+        for name in ("scripts", "config", "references", "agents"):
             shutil.copytree(ROOT / name, staging / name,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "ml.ini"))
         (staging / "bundle.json").write_text(json.dumps({

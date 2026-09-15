@@ -48,7 +48,9 @@ def create_estimator(tag, task, seed, parameters=None):
     except (ImportError, OSError) as exc:
         raise RuntimeError(
             f"{tag} requires a working {module.split('.')[0]} installation; "
-            "run scripts/install_runtime.py and check any reported system-library errors"
+            "run scripts/install_runtime.py --packages "
+            f"{'scikit-learn' if module.startswith('sklearn.') else module.split('.')[0]} "
+            "and check any reported system-library errors"
         ) from exc
     params = model.get_params(deep=False)
     updates = {k: seed for k in ("random_state", "random_seed") if k in params}
@@ -71,5 +73,8 @@ def versions():
     result = {}
     for name in ("scikit-learn", "lightgbm", "xgboost", "catboost", "imbalanced-learn",
                  "numpy", "scipy", "pandas", "joblib", "matplotlib", "python-docx"):
-        result[name] = metadata.version(name)
+        try:
+            result[name] = metadata.version(name)
+        except metadata.PackageNotFoundError:
+            result[name] = None
     return result

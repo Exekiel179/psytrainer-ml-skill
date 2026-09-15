@@ -11,6 +11,10 @@ import sys
 from copy import copy
 from pathlib import Path
 
+if __name__ == "__main__":
+    from runtime_dependencies import CORE, bootstrap
+    bootstrap(__file__, CORE)
+
 import joblib
 import numpy as np
 import pandas as pd
@@ -308,6 +312,9 @@ def run(args):
     if not isinstance(grids, dict) or set(grids) - set(tags):
         raise ValueError("search-space must map selected model names to search spaces")
     spaces = {tag: search_candidates(tag, args, grids) for tag in tags}
+    if __name__ == "__main__":
+        from runtime_dependencies import ensure, training_packages
+        ensure(training_packages(tags, args.task, args.resample, spaces))
     if bool(args.test_features) != bool(args.test_labels):
         raise ValueError("test-features and test-labels must be supplied together")
     if args.test_metadata and not args.test_features:
@@ -547,7 +554,8 @@ def run(args):
 
 
 def predict(args):
-    saved = joblib.load(args.model)
+    from runtime_dependencies import load_model
+    saved = load_model(args.model)
     if saved.get("schema") != "psytrainer-pipeline/v1":
         raise ValueError("expected a saved Pipeline model")
     x = read_table(args.features)
@@ -636,6 +644,9 @@ def main(argv=None):
         elif args.operation == "predict":
             value = predict(args)
         else:
+            if __name__ == "__main__":
+                from runtime_dependencies import REPORT, ensure
+                ensure(REPORT)
             from pipeline_report import generate_report
             generate_report(args.directory)
             value = {"report": str((args.directory / "report.docx").resolve())}

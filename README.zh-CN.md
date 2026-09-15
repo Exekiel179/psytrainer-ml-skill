@@ -2,7 +2,7 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-用于表格数据分类、回归和批量预测的 PsyClaw / Claude code /Codex Skill。大语言模型负责理解任务和调用工具，本地 Python 脚本负责训练、验证、分析、绘图及生成 Word 报告。
+用于表格数据分类、回归和批量预测的 PsyClaw / Claude Code / Codex Skill。大语言模型负责理解任务和调用工具，本地 Python 脚本负责训练、验证、分析、绘图及生成 Word 报告。
 
 ## 能做什么
 
@@ -10,6 +10,7 @@
 - 支持随机、分组、时间交叉验证，以及内部留出测试集或单独提供的外部测试集。
 - 比较候选模型，分析训练与验证差距、相对基线的收益、误差结构、校准、特征依赖、输入分布变化和分组/时间稳定性。
 - 输出 PDF、可编辑 SVG、600 dpi PNG 图表，以及中文或英文的 `report.docx` 和 `report.md`。
+- 报告面向无机器学习背景的读者，解释任务、数据划分、预处理和指标，并逐图说明读法、本次实测结果及解释边界。
 - 保存包含预处理的模型、预测结果、数据划分、指标和来源记录，便于复核。
 - 支持有预算的网格/随机搜索、逐步前向与 F 阈值筛选、七种分类重采样，以及校验数据和配置后续跑。
 
@@ -35,24 +36,31 @@
 
 图表和报告的设计参考已融入本项目，使用者无需另装报告绘图类 Skill。
 
-**完整下载 Skill 不等于安装了运行环境。** Skill 包包含全部项目文件，首次安装仍需联网下载第三方 Python 依赖。包内不包含 Python 解释器和系统共享库。
+Skill 发布包包含运行所需的指令、脚本和配置。首次配置只创建虚拟环境，第三方依赖在执行任务时按需补装。Python 解释器和系统共享库需在本机准备。
 
 ## 让大语言模型帮助安装
 
 可以向具有本地终端和联网能力的编码助手发送：
 
 ```text
-将 https://github.com/Exekiel179/psytrainer-ml-skill 安装到当前宿主的技能目录，
-按中文 README 的安装章节完成环境配置和验证，汇报位置与结果。
+安装 https://github.com/Exekiel179/psytrainer-ml-skill 的最新 Release Skill 包，按 references/setup.md 配置。
 ```
 
-完整安装包含三步：将文件放入宿主技能目录、配置 Python 运行环境、验证训练与预测。`scripts/install_runtime.py` 是运行环境配置脚本，负责创建虚拟环境、安装依赖并检查依赖可用性。文件放置与技能发现由宿主机制处理，真实工作流由冒烟测试验证。
+Claude Code 可直接用这条，避免安装到其他宿主目录：
+
+```text
+将 https://github.com/Exekiel179/psytrainer-ml-skill 的最新 Release Skill 包安装到 ~/.claude/skills/psytrainer-ml，执行 scripts/install_runtime.py。
+```
+
+智能体使用[短安装指南](references/setup.md)，执行任务时读取 `SKILL.md`，其他参考按需读取。详细 Word 解读由本地脚本生成，无需反复调用模型或将整份报告读入上下文。
+
+安装只需将 Skill 放入宿主技能目录并运行一次环境配置脚本，无需提前下载全部算法库，也不运行样例训练。每次使用前，任务入口自动检查所需依赖，缺少或版本不兼容时才补装。
 
 ## 安装
 
-推荐流程：**将完整目录放入技能目录，运行环境配置脚本，再验证宿主发现和真实工作流。**
+推荐流程：**下载 Release Skill 包，解压到技能目录，运行环境配置脚本。**
 
-在 [GitHub Releases](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest) 下载 **`psytrainer-ml-skill.zip`**，按下列步骤放置完整目录、配置环境并验证。使用 Git 克隆仓库时，无需另下载发布附件。
+在 [GitHub Releases](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest) 下载 **`psytrainer-ml-skill.zip`**。此包不携带开发测试和样例数据；Git 克隆适用于需要开发源码的用户，会包含测试文件。
 
 ### 1. 准备 Python 并选择目录
 
@@ -60,59 +68,80 @@
 
 | 使用方式 | Skill 的最终目录 |
 |---|---|
+| Claude Code，当前用户的所有项目 | `~/.claude/skills/psytrainer-ml` |
+| Claude Code，仅当前项目 | `<项目>/.claude/skills/psytrainer-ml` |
 | Codex，当前用户的所有项目 | `~/.agents/skills/psytrainer-ml` |
 | Codex，仅当前项目 | `<项目>/.agents/skills/psytrainer-ml` |
 | PsyClaw，当前用户 | `~/.psyclaw/skills/psytrainer-ml` |
 
 Codex 目录规则见[官方文档](https://learn.chatgpt.com/docs/build-skills)。Windows 的 `~` 指用户目录；其他宿主请使用其配置的技能目录。将完整 Skill 放入对应目录后，按宿主的发现或启用机制加载它。
 
+Claude Code 使用 `.claude/skills`，不能照搬 Codex 的 `.agents/skills`。仅将本仓库下载到普通项目目录，或运行 Python 环境脚本，并不会让 Claude Code 发现它。目录规则见 [Claude Code 官方说明](https://code.claude.com/docs/en/skills#choose-where-skills-load)。
+
 ### 2. 放置 Skill 并配置运行环境
 
-下面以 Codex 用户技能目录为例，首次安装需要 Git。使用其他宿主时替换目标路径。
+将 ZIP 中的完整 `psytrainer-ml` 文件夹解压到选定目录。下面以 Claude Code 用户技能目录为例；Codex 换成 `$HOME/.agents/skills/psytrainer-ml`，PsyClaw 换成 `$HOME/.psyclaw/skills/psytrainer-ml`。无需 Git。
 
 macOS / Linux：
 
 ```bash
-mkdir -p "$HOME/.agents/skills"
-git clone https://github.com/Exekiel179/psytrainer-ml-skill "$HOME/.agents/skills/psytrainer-ml"
-cd "$HOME/.agents/skills/psytrainer-ml"
+cd "$HOME/.claude/skills/psytrainer-ml"
 python3 scripts/install_runtime.py
 ```
 
 Windows PowerShell：
 
 ```powershell
-New-Item -ItemType Directory -Force "$HOME/.agents/skills" | Out-Null
-git clone https://github.com/Exekiel179/psytrainer-ml-skill "$HOME/.agents/skills/psytrainer-ml"
-Set-Location "$HOME/.agents/skills/psytrainer-ml"
+Set-Location "$HOME/.claude/skills/psytrainer-ml"
 powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1
 ```
 
 Windows CMD 用户在 Skill 目录内执行 `scripts\install_runtime.cmd`。
 
-不使用 Git：在 [GitHub Releases](https://github.com/Exekiel179/psytrainer-ml-skill/releases/latest) 下载 `psytrainer-ml-skill.zip`，将完整的 `psytrainer-ml` 文件夹解压到上述位置，再进入该目录执行 `scripts/install_runtime.py`（Windows 可用包装脚本），跳过 `git clone`。确保路径是 `psytrainer-ml/SKILL.md`，不要多嵌套一层同名目录，也不要只下载 `SKILL.md`。
+确保路径是 `psytrainer-ml/SKILL.md`，不要多嵌套一层同名目录，也不要只下载 `SKILL.md`。
 
-运行环境配置脚本创建 `.venv`，一次性解析并安装所有 Pipeline 依赖，包括全部 21 个模型使用的算法库。它运行 `pip check`，导入必要模块并构造全部估计器，成功后才写入 `ready: true`、`capabilities.pipeline: true` 的 `runtime.json`。此标记表示依赖检查通过；宿主发现和真实工作流需按下一步验证。任何必需依赖失败都不会留下成功标记。
+运行环境配置脚本默认只创建 `.venv` 并记录解释器路径，不下载模型依赖。`runtime.json` 的 `ready: true` 表示环境已创建；每次执行任务都会重新检查本次需要的依赖及版本，不以旧标记代替检查。
+
+默认训练只准备基础建模、绘图和 Word 报告依赖；选用 LightGBM、XGBoost、CatBoost 时才安装相应库，使用重采样时才安装 imbalanced-learn。预测按所加载模型补齐依赖，重新生成报告不安装无关模型库。已有包满足要求时不联网下载。主动预装某个包可用 `--packages xgboost`；只有明确需要完整预装或发布测试时才用 `--all`。
 
 macOS 如遇 LightGBM 的 OpenMP 动态库错误，需要安装系统库 `brew install libomp` 后重试。安装过程中会显示原始错误。
 
-### 3. 验证宿主发现、训练、预测和报告
+### 3. 加载 Skill
 
-在安装后的 Skill 目录执行：
+Claude Code 中输入 `/psytrainer-ml`；Codex 中用 `$psytrainer-ml`；PsyClaw 中用 `/skill:psytrainer-ml`。Claude Code 也可根据“CSV 分类回归、批量预测、Word 分析报告”等任务描述自动调用。
+
+Claude Code 未识别时，确认 `~/.claude/skills/psytrainer-ml/SKILL.md` 存在，打开新会话后输入 `/psytrainer-ml`。项目级安装只在对应项目范围内生效。若目录正确仍不显示，检查 Claude Code 的技能禁用配置或同名技能；依赖重装不能解决技能发现问题。
+
+### 网络慢或中断
+
+在 Skill 目录执行，国内网络可指定[清华 PyPI 镜像](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/)：
 
 ```bash
-# macOS / Linux
-.venv/bin/python tests/smoke_pipeline.py
+python3 scripts/install_runtime.py --index-url https://pypi.tuna.tsinghua.edu.cn/simple
 ```
+
+Windows PowerShell：
 
 ```powershell
-# Windows PowerShell
-& .\.venv\Scripts\python.exe tests\smoke_pipeline.py
+powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1 -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-测试会在临时目录生成合成数据，执行随机、分组和时间验证，检查真实预测、诊断图表及 Word 报告。测试结束后临时结果自动清理。`ready: true` 代表依赖与导入检查通过；这个测试进一步验证完整工作流。`--dry-run` 只检查数据形状，不能代替真实运行。
+- 默认使用 pip，保留其缓存和源配置；指定的镜像、安装工具和超时参数会记入当前 Skill 的 `runtime.json`，后续按需补装沿用，不修改系统全局配置。
+- 已安装 uv 时可加 `--installer uv`（PowerShell：`-Installer uv`），使用其并发下载和缓存。uv 有独立的源配置与缓存，不读取 pip 配置；需要镜像时同时传入 `--index-url`。
+- 默认网络超时 20 秒、重试 2 次，单次依赖安装最多 600 秒；可用 `--timeout`、`--retries`、`--max-seconds` 调整。PowerShell 对应 `-Timeout`、`-Retries`、`-MaxSeconds`。
+- 中断后重跑相同命令，复用已安装依赖和已完成的缓存下载；未完成的大文件可能需要重新下载。无需 `--recreate`。
+- 只检查指定包：`python3 scripts/install_runtime.py --check --packages xgboost`，不联网、不下载；缺失或冲突会列出补装命令。单独 `--check` 只检查环境，`--check --all` 检查全部依赖。PowerShell 用 `-Check -Packages xgboost` 或 `-Check -All`。
+- 已有匹配平台和 Python 版本的依赖目录时，用 `--wheelhouse PATH`（PowerShell：`-Wheelhouse PATH`）离线安装。
 
-Codex 会自动发现技能；若未出现，重启 Codex 后再检查。可用 `$psytrainer-ml` 指定本 Skill；PsyClaw 中使用 `/skill:psytrainer-ml`。
+安装只接受预编译包，避免弱网下进入耗时的源码构建；没有匹配包时会明确失败。完整训练、预测和报告测试由维护者在发布前执行。
+
+**下载失败必须给出补装路径。** 任务会停止并列出所需包、目标解释器和完整安装命令。用户可以自己执行，也可以让编码助手代为执行，例如：
+
+```bash
+python3 scripts/install_runtime.py --packages xgboost --index-url https://pypi.tuna.tsinghua.edu.cn/simple
+```
+
+PowerShell 使用 `-Packages xgboost -IndexUrl https://pypi.tuna.tsinghua.edu.cn/simple`。也可用 `--wheelhouse PATH` 从本地目录安装。完成后重跑原任务；助手不能只报告网络失败而省略这些操作说明，也不能跳过依赖继续声称成功。
 
 ## 开始分析
 
@@ -173,7 +202,7 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 
 ## 升级与常见安装问题
 
-更新完整 Skill 文件后，在原目录重跑运行环境配置脚本，再执行冒烟测试。Git 安装可先运行 `git pull --ff-only`；ZIP 安装应使用新版本的完整内容，并保留自己的数据和结果。
+更新 Skill 文件后，在原目录重跑环境配置脚本即可，依赖满足时不会再次下载。Git 安装可先运行 `git pull --ff-only`；ZIP 安装使用新版本的完整内容，并保留 `.venv`、自己的数据和结果。
 
 | 现象 | 处理方式 |
 |---|---|
@@ -188,7 +217,7 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 
 `scripts/ml.py capabilities` 可查询支持的模型与处理选项。
 
-开发者完整验证命令（Windows 同样替换解释器路径）：
+以下命令只在源码仓库执行，发布包不携带 `tests/` 和 `fixtures/`（Windows 同样替换解释器路径）：
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -v

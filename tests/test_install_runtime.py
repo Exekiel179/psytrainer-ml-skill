@@ -11,6 +11,7 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 def load_installer():
     path = Path(__file__).resolve().parents[1] / "scripts" / "install_runtime.py"
@@ -98,7 +99,7 @@ class InstallRuntimeTests(unittest.TestCase):
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
                  patch.object(install_runtime, "install_requirements", side_effect=RuntimeError("download failed")):
                 with self.assertRaisesRegex(RuntimeError, "download failed"):
-                    install_runtime.main([])
+                    install_runtime.main(["--all"])
             self.assertFalse(runtime.exists())
 
     def test_offline_install_uses_no_index_and_checks_dependencies(self):
@@ -110,6 +111,113 @@ class InstallRuntimeTests(unittest.TestCase):
         self.assertIn("vendor.whl", command)
         self.assertEqual(run.call_args_list[1].args[0][-2:], ["pip", "check"])
 
+    def test_satisfied_environment_skips_network_installation(self):
+        with patch.object(install_runtime, "requirements_satisfied", return_value=True), \
+             patch.object(install_runtime, "run") as run:
+            install_runtime.install_requirements(Path(sys.executable))
+        self.assertEqual(len(run.call_args_list), 1)
+        self.assertEqual(run.call_args.args[0][-2:], ["pip", "check"])
+
+    def test_missing_dependencies_use_configured_network_budget(self):
+        with patch.object(install_runtime, "requirements_satisfied", return_value=False), \
+             patch.object(install_runtime, "run") as run:
+            install_runtime.install_requirements(Path(sys.executable), index_url="https://example.invalid/simple",
+                                                  timeout=5, retries=1, max_seconds=40)
+        command = run.call_args_list[0].args[0]
+        self.assertIn("--only-binary=:all:", command)
+        self.assertEqual(command[command.index("--index-url") + 1], "https://example.invalid/simple")
+        self.assertEqual(command[command.index("--timeout") + 1], "5")
+        self.assertEqual(run.call_args_list[0].kwargs["timeout"], 40)
+
+    def test_timeout_preserves_environment_and_explains_retry(self):
+        with patch.object(install_runtime, "requirements_satisfied", return_value=False), \
+             patch.object(install_runtime, "run", side_effect=subprocess.TimeoutExpired("pip", 1)):
+            with self.assertRaisesRegex(SystemExit, "reuse"):
+                install_runtime.install_requirements(Path(sys.executable), max_seconds=1)
+
+    def test_uv_targets_venv_and_honors_network_budget(self):
+        with patch.object(install_runtime, "requirements_satisfied", return_value=False), \
+             patch.object(install_runtime.shutil, "which", return_value="/tools/uv"), \
+             patch.object(install_runtime, "run") as run:
+            install_runtime.install_requirements(Path("venv/python"), installer="uv",
+                                                 index_url="https://example.invalid/simple",
+                                                 timeout=7, retries=1, max_seconds=30)
+        command = run.call_args_list[0].args[0]
+        self.assertEqual(command[:5], ["/tools/uv", "pip", "install", "--python", str(Path("venv/python"))])
+        self.assertIn("--only-binary=:all:", command)
+        self.assertIn("https://example.invalid/simple", command)
+        options = run.call_args_list[0].kwargs
+        self.assertEqual(options["timeout"], 30)
+        self.assertEqual(options["env"]["UV_HTTP_TIMEOUT"], "7")
+        self.assertEqual(options["env"]["UV_HTTP_RETRIES"], "1")
+        self.assertEqual(options["env"]["UV_PYTHON_DOWNLOADS"], "never")
+
+    def test_uv_offline_install_cannot_access_index(self):
+        with patch.object(install_runtime, "requirements_satisfied", return_value=False), \
+             patch.object(install_runtime.shutil, "which", return_value="uv"), \
+             patch.object(install_runtime, "run") as run:
+            install_runtime.install_requirements(Path("python"), wheelhouse=Path("wheels"), installer="uv")
+        command = run.call_args_list[0].args[0]
+        self.assertIn("--offline", command)
+        self.assertIn("--no-index", command)
+        self.assertIn("--find-links", command)
+
+    def test_missing_uv_does_not_trigger_a_download(self):
+        with patch.object(install_runtime, "requirements_satisfied", return_value=False), \
+             patch.object(install_runtime.shutil, "which", return_value=None), \
+             patch.object(install_runtime, "run") as run:
+            with self.assertRaisesRegex(SystemExit, "omit --installer uv"):
+                install_runtime.install_requirements(Path("python"), installer="uv")
+        run.assert_not_called()
+
+    def test_offline_probe_ignores_network_and_upgrade_settings(self):
+        with patch.dict(os.environ, {"PIP_FIND_LINKS": "https://example.invalid/wheels",
+                                     "PIP_UPGRADE": "true", "PIP_CONFIG_FILE": "custom.ini"}), \
+             patch.object(install_runtime.subprocess, "run") as probe:
+            probe.return_value.returncode = 0
+            self.assertTrue(install_runtime.requirements_satisfied(Path("python")))
+        env = probe.call_args.kwargs["env"]
+        self.assertNotIn("PIP_FIND_LINKS", env)
+        self.assertNotIn("PIP_UPGRADE", env)
+        self.assertEqual(env["PIP_CONFIG_FILE"], os.devnull)
+
+    def test_failed_check_removes_stale_ready_marker_without_installing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            runtime = Path(temp) / "runtime.json"
+            runtime.write_text('{"ready": true}')
+            with patch.object(install_runtime, "RUNTIME_JSON", runtime), \
+                 patch.object(install_runtime, "venv_python", return_value=Path(sys.executable)), \
+                 patch.object(install_runtime, "python_version", return_value=(3, 12)), \
+                 patch("runtime_dependencies.probe", return_value=["numpy"]), \
+                 patch.object(install_runtime, "install_requirements") as install:
+                with self.assertRaisesRegex(SystemExit, "missing or incompatible"):
+                    install_runtime.main(["--check", "--packages", "numpy"])
+            install.assert_not_called()
+            self.assertFalse(runtime.exists())
+
+    def test_check_only_never_installs_or_creates_environment(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with patch.object(install_runtime, "RUNTIME_JSON", Path(temp) / "runtime.json"), \
+                 patch.object(install_runtime, "venv_python", return_value=Path(sys.executable)), \
+                 patch.object(install_runtime, "python_version", return_value=(3, 12)), \
+                 patch.object(install_runtime, "requirements_satisfied", return_value=True), \
+                 patch.object(install_runtime, "verify", return_value={"sklearn": True}), \
+                 patch.object(install_runtime, "run"), \
+                 patch.object(install_runtime, "ensure_venv") as create, \
+                 patch.object(install_runtime, "install_requirements") as install:
+                self.assertEqual(install_runtime.main(["--check"]), 0)
+                create.assert_not_called()
+                install.assert_not_called()
+
+    def test_requirement_probe_is_offline_and_respects_version_constraints(self):
+        with tempfile.TemporaryDirectory() as temp:
+            req = Path(temp) / "requirements.txt"
+            with patch.object(install_runtime, "REQUIREMENTS", req):
+                req.write_text("pip>=1\n")
+                self.assertTrue(install_runtime.requirements_satisfied(Path(sys.executable)))
+                req.write_text("pip>9999\n")
+                self.assertFalse(install_runtime.requirements_satisfied(Path(sys.executable)))
+
     def test_failed_training_probe_never_publishes_runtime(self):
         with tempfile.TemporaryDirectory() as temp:
             runtime = Path(temp) / "runtime.json"
@@ -120,19 +228,19 @@ class InstallRuntimeTests(unittest.TestCase):
                  patch.object(install_runtime, "install_requirements"), \
                  patch.object(install_runtime, "verify", side_effect=RuntimeError("trainer unavailable")):
                 with self.assertRaisesRegex(RuntimeError, "trainer unavailable"):
-                    install_runtime.main([])
+                    install_runtime.main(["--all"])
             self.assertFalse(runtime.exists())
 
     def test_complete_install_publishes_ready_runtime(self):
         with tempfile.TemporaryDirectory() as temp:
             runtime = Path(temp) / "runtime.json"
-            status = dict.fromkeys(["pandas", "numpy", "joblib", "sklearn"], True)
+            status = dict.fromkeys(["pandas", "numpy", "scipy", "joblib", "sklearn"], True)
             with patch.object(install_runtime, "RUNTIME_JSON", runtime), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
                  patch.object(install_runtime, "install_requirements"), \
                  patch.object(install_runtime, "verify", return_value=status):
-                self.assertEqual(install_runtime.main([]), 0)
+                self.assertEqual(install_runtime.main(["--all"]), 0)
             payload = json.loads(runtime.read_text())
             self.assertTrue(payload["ready"])
             self.assertTrue(payload["imports"]["sklearn"])
@@ -148,7 +256,7 @@ class InstallRuntimeTests(unittest.TestCase):
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
                  patch.object(install_runtime, "install_requirements") as install, \
                  patch.object(install_runtime, "verify", return_value={"sklearn": True}):
-                self.assertEqual(install_runtime.main([]), 0)
+                self.assertEqual(install_runtime.main(["--all"]), 0)
                 self.assertIsNone(install.call_args.args[1])
 
     def test_supported_pipeline_python_versions(self):

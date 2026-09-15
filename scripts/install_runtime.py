@@ -2,14 +2,14 @@
 """Configure the local Python runtime and check its dependencies.
 
 Place the Skill in the host's discovery directory before running this script.
-Verify host discovery and run tests/smoke_pipeline.py after runtime setup.
+Host discovery completes setup; full training tests are reserved for release QA.
 
 Cross-platform (macOS / Linux / Windows):
   - Creates a local .venv under the skill root
-  - Installs requirements.txt
-  - Installs the complete local Pipeline runtime on CPython 3.12-3.14
+  - Creates an environment without downloading task dependencies by default
+  - Installs selected packages on demand, or all requirements with --all
   - Optionally installs PsyTrainer in a separate .venv-legacy
-  - Writes runtime.json so tasks use the configured interpreter (no mid-task pip)
+  - Writes runtime.json so tasks check and repair their own dependencies
 
 Windows notes:
   - Legacy mode selects the Python version declared by the wheel
@@ -40,10 +40,10 @@ IS_WINDOWS = os.name == "nt"
 SUPPORTED_PYTHONS = ((3, 12), (3, 13), (3, 14))
 
 
-def run(cmd: list[str], *, env: dict[str, str] | None = None) -> None:
+def run(cmd: list[str], *, env: dict[str, str] | None = None, timeout: int | None = None) -> None:
     printable = subprocess.list2cmdline(cmd) if IS_WINDOWS else " ".join(cmd)
     print("+", printable, flush=True)
-    subprocess.run(cmd, check=True, env=env)
+    subprocess.run(cmd, check=True, env=env, timeout=timeout, stdout=sys.stderr)
 
 
 def python_version(cmd: list[str]) -> tuple[int, int] | None:
@@ -226,20 +226,76 @@ def wheel_python(wheel: Path) -> tuple[int, int]:
         raise SystemExit(f"invalid PsyTrainer wheel: {exc}") from exc
 
 
-def install_requirements(py: Path, wheel: Path | None = None, wheelhouse: Path | None = None) -> None:
+def requirements_satisfied(py: Path) -> bool:
+    """Ask pip to resolve installed distributions without consulting any index."""
+    if not REQUIREMENTS.is_file():
+        raise SystemExit(f"missing {REQUIREMENTS}")
+    # Ignore user pip settings such as upgrade/find-links during the offline probe.
+    env = {key: value for key, value in os.environ.items() if not key.startswith("PIP_")}
+    env["PIP_CONFIG_FILE"] = os.devnull
+    try:
+        probe = subprocess.run(
+            [str(py), "-m", "pip", "--disable-pip-version-check", "install", "--dry-run",
+             "--no-index", "--only-binary=:all:", "-r", str(REQUIREMENTS)],
+            capture_output=True, text=True, timeout=60, env=env,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise SystemExit("Local dependency check timed out; inspect the environment before retrying setup.") from exc
+    return probe.returncode == 0
+
+
+def install_requirements(py: Path, wheel: Path | None = None, wheelhouse: Path | None = None,
+                         *, index_url: str | None = None, timeout: int = 20,
+                         retries: int = 2, max_seconds: int = 600,
+                         installer: str = "pip", specs: list[str] | None = None) -> None:
     if not REQUIREMENTS.is_file():
         raise SystemExit(f"missing {REQUIREMENTS}")
     options = ["--no-index", "--find-links", str(wheelhouse)] if wheelhouse else []
-    # Resolve wrapper and vendor requirements together so neither overwrites the other.
-    run([str(py), "-m", "pip", "install", *options, "-r", str(REQUIREMENTS), *([str(wheel)] if wheel else [])])
-    run([str(py), "-m", "pip", "check"])
+    if not wheelhouse and index_url:
+        options += ["--index-url", index_url]
+    from runtime_dependencies import probe
+    satisfied = (not probe(py, specs) if specs is not None else requirements_satisfied(py)) if wheel is None else False
+    if wheel is None and satisfied:
+        print("Installed requirements satisfied; skipping network installation", flush=True)
+        if specs is None:
+            run([str(py), "-m", "pip", "check"], timeout=60)
+        return
+    packages = [*(specs if specs is not None else ["-r", str(REQUIREMENTS)]),
+                *([str(wheel)] if wheel else [])]
+    env = dict(os.environ)
+    if installer == "uv":
+        uv = shutil.which("uv")
+        if not uv:
+            raise SystemExit("uv is not installed; omit --installer uv to use the bundled pip.")
+        env.update(UV_HTTP_TIMEOUT=str(timeout), UV_HTTP_RETRIES=str(retries),
+                   UV_PYTHON_DOWNLOADS="never")
+        command = [uv, "pip", "install", "--python", str(py), "--only-binary=:all:",
+                   *(["--offline"] if wheelhouse else []), *options, *packages]
+    else:
+        command = [str(py), "-m", "pip", "--disable-pip-version-check", "install",
+                   "--only-binary=:all:", "--timeout", str(timeout), "--retries", str(retries),
+                   *options, *packages]
+    # Resolve all requirements together; retain the environment and cache on failure.
+    try:
+        run(command, timeout=max_seconds, env=env)
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
+        raise SystemExit("Dependency installation did not finish. Rerun the same command to reuse "
+                         "installed packages and the installer's cache; choose --index-url for a reachable mirror, "
+                         "--max-seconds for a longer budget, or --wheelhouse for offline setup.") from exc
+    if specs is None:
+        run([str(py), "-m", "pip", "check"], timeout=60)
+    elif probe(py, specs):
+        raise SystemExit("Selected dependencies are still missing or incompatible after installation")
 
 
-def verify(py: Path, *, legacy: bool = False) -> dict[str, object]:
+def verify(py: Path, *, legacy: bool = False, names=None) -> dict[str, object]:
     modules = ["pandas", "numpy", "scipy", "joblib", "sklearn", "imblearn", "matplotlib", "docx",
                "lightgbm", "xgboost", "catboost"]
     if legacy:
         modules.append("ccpl_training_models")
+    if names is not None:
+        from runtime_dependencies import MODULES
+        modules = [MODULES[name] for name in names]
     code = (
         "import importlib, json, sys\n"
         f"sys.path.insert(0, {str(ROOT / 'scripts')!r})\n"
@@ -251,6 +307,7 @@ def verify(py: Path, *, legacy: bool = False) -> dict[str, object]:
         "from model_registry import MODELS, create_estimator\n"
         "for task, models in MODELS.items():\n"
         "    for tag in models:\n"
+        "        if MODELS[task][tag][0].split('.')[0] not in mods: continue\n"
         "        model = create_estimator(tag, task, 42)\n"
         "        assert callable(model.fit) and callable(model.predict)\n"
     )
@@ -261,7 +318,7 @@ def verify(py: Path, *, legacy: bool = False) -> dict[str, object]:
             "assert all(callable(getattr(trainer, m, None)) for m in ['set_base_config', 'set_scoring', 'run'])\n"
         )
     code += "print(json.dumps(status))\n"
-    out = subprocess.check_output([str(py), "-c", code], text=True).strip()
+    out = subprocess.check_output([str(py), "-c", code], text=True, timeout=120).strip()
     status = json.loads(out.splitlines()[-1])
     print("import probe:", status, flush=True)
     for name in modules:
@@ -272,9 +329,11 @@ def verify(py: Path, *, legacy: bool = False) -> dict[str, object]:
 
 def write_runtime(py: Path, status: dict[str, object], wheel: str | None, base_cmd: list[str]) -> None:
     payload = {
-        "schemaVersion": "psytrainer-ml/runtime/v2",
+        "schemaVersion": "psytrainer-ml/runtime/v3",
         "profile": "legacy" if wheel else "pipeline",
-        "capabilities": {"pipeline": True, "legacy": bool(wheel)},
+        "capabilities": {"pipeline": all(status.get(m) for m in ("numpy", "pandas", "scipy", "joblib", "sklearn")),
+                         "legacy": bool(wheel)},
+        "dependencyMode": "on-demand",
         "ready": True,
         "platform": os.name,
         "python": str(py.absolute()),
@@ -309,7 +368,7 @@ def runtime_location(legacy: bool):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Configure the local Python runtime and check dependencies (Windows/macOS/Linux)",
-        epilog="Place the Skill in your host's skill directory first. After setup, verify host discovery and run tests/smoke_pipeline.py.",
+        epilog="Place the Skill in your host's skill directory first. Setup checks dependencies without running sample training.",
     )
     parser.add_argument(
         "--python",
@@ -330,8 +389,25 @@ def main(argv: list[str] | None = None) -> int:
         help=argparse.SUPPRESS,
     )
     parser.add_argument("--wheelhouse", type=Path, help="Install all dependencies offline from this directory")
+    parser.add_argument("--index-url", help="Use a reachable Python package index or mirror for this run")
+    parser.add_argument("--installer", choices=("pip", "uv"), default="pip",
+                        help="Package installer (default: pip); uv must already be installed")
+    parser.add_argument("--timeout", type=int, default=20, help="Network socket timeout in seconds (default: 20)")
+    parser.add_argument("--retries", type=int, default=2, help="Network retries (default: 2)")
+    parser.add_argument("--max-seconds", type=int, default=600, help="Dependency installation time budget (default: 600)")
+    parser.add_argument("--check", action="store_true", help="Check the existing environment offline; do not create or install packages")
+    from runtime_dependencies import MODULES
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--all", action="store_true", help="Install every dependency (release QA or explicit preinstallation)")
+    selection.add_argument("--packages", nargs="+", choices=MODULES, help="Install/check only these task dependencies")
     parser.add_argument("--legacy", action="store_true", help="Existing INI compatibility only; requires an external --wheel")
     args = parser.parse_args(argv)
+    if args.timeout < 1 or args.retries < 0 or args.max_seconds < 1:
+        parser.error("timeout and max-seconds must be positive; retries must be nonnegative")
+    if args.check and (args.recreate or args.wheel or args.legacy):
+        parser.error("--check cannot be combined with --recreate, --wheel or --legacy")
+    if args.wheelhouse and args.index_url:
+        parser.error("--wheelhouse is offline and cannot be combined with --index-url")
     if args.wheel:
         args.legacy = True
     with runtime_location(args.legacy):
@@ -340,16 +416,38 @@ def main(argv: list[str] | None = None) -> int:
 
 def install(args) -> int:
 
+    previous_settings = {}
+    if RUNTIME_JSON.is_file():
+        previous_settings = json.loads(RUNTIME_JSON.read_text()).get("installation", {})
     # A failed re-install must never leave an old success marker for callers.
     RUNTIME_JSON.unlink(missing_ok=True)
     if args.allow_missing_psytrainer:
         raise SystemExit("--allow-missing-psytrainer is no longer supported: a complete runtime is required")
+    if args.check:
+        py = venv_python()
+        if not py.is_file() or python_version([str(py)]) not in SUPPORTED_PYTHONS:
+            raise SystemExit("No supported local runtime. Run setup without --check first.")
+        from runtime_dependencies import MODULES, probe, requirements, repair_message
+        names = list(MODULES) if args.all else (args.packages or [])
+        if probe(py, requirements(names)):
+            raise SystemExit(repair_message(py, names, "Dependencies are missing or incompatible."))
+        if args.all:
+            run([str(py), "-m", "pip", "check"], timeout=60)
+        status = verify(py, names=names)
+        write_runtime(py, status, None, [str(py)])
+        payload = json.loads(RUNTIME_JSON.read_text())
+        payload["installation"] = previous_settings
+        RUNTIME_JSON.write_text(json.dumps(payload, indent=2) + "\n")
+        print("Local runtime check passed; no packages downloaded", flush=True)
+        return 0
     wheel_spec = (args.wheel or "").strip() or None
     wheel_path = resolve_wheel(wheel_spec) if args.legacy else None
     required = wheel_python(wheel_path) if wheel_path else None
     wheelhouse = args.wheelhouse
     if wheelhouse is None and (ROOT / "wheelhouse").is_dir():
         wheelhouse = ROOT / "wheelhouse"
+    if wheelhouse is not None and args.index_url:
+        raise SystemExit("This bundle uses an offline wheelhouse; omit --index-url.")
     if wheelhouse is not None and not wheelhouse.is_dir():
         raise SystemExit(f"wheelhouse directory not found: {wheelhouse}")
     manifest = wheelhouse.parent / "bundle.json" if wheelhouse else None
@@ -363,11 +461,26 @@ def install(args) -> int:
         required = bundled_python
     base_cmd = resolve_base_python(args.python, required)
     py = ensure_venv(base_cmd, recreate=args.recreate)
-    install_requirements(py, wheel_path, wheelhouse)
-    status = verify(py, legacy=args.legacy)
+    from runtime_dependencies import MODULES, requirements, repair_message
+    names = list(MODULES) if args.all or args.legacy else (args.packages or [])
+    settings = dict(index_url=args.index_url, timeout=args.timeout, retries=args.retries,
+                    max_seconds=args.max_seconds, installer=args.installer)
+    if names:
+        try:
+            install_requirements(py, wheel_path, wheelhouse, **settings,
+                                 specs=None if args.all or args.legacy else requirements(names))
+        except (SystemExit, subprocess.SubprocessError) as exc:
+            raise SystemExit(repair_message(py, names, str(exc))) from exc
+    try:
+        status = verify(py, legacy=args.legacy, **({} if args.legacy else {"names": names})) if names else {}
+    except (SystemExit, subprocess.SubprocessError) as exc:
+        raise SystemExit(repair_message(py, names, str(exc))) from exc
     write_runtime(py, status, str(wheel_path.resolve()) if wheel_path else None, base_cmd)
-    print("psytrainer-ml Python runtime configured; dependency checks passed", flush=True)
-    print(f"Next: verify host discovery and run tests/smoke_pipeline.py with the {RUNTIME_JSON.name} interpreter.", flush=True)
+    payload = json.loads(RUNTIME_JSON.read_text())
+    payload["installation"] = dict(settings, wheelhouse=str(wheelhouse.absolute()) if wheelhouse else None)
+    RUNTIME_JSON.write_text(json.dumps(payload, indent=2) + "\n")
+    print("Python environment ready; task dependencies are checked and installed when used", flush=True)
+    print("Runtime ready. Load the Skill through your host to start using it.", flush=True)
     return 0
 
 

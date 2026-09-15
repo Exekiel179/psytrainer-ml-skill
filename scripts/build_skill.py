@@ -10,11 +10,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 CONTENTS = (
     "README.md", "README.zh-CN.md", "SKILL.md", "NOTICE.md", "LICENSE",
-    "requirements.txt", "scripts", "config", "fixtures", "references", "agents", "tests",
+    "requirements.txt", "scripts", "config", "references", "agents",
 )
 REQUIRED = {
     "SKILL.md", "requirements.txt", "scripts/install_runtime.py",
-    "scripts/pipeline_train.py", "scripts/pipeline_options.py", "tests/smoke_pipeline.py",
+    "scripts/pipeline_train.py", "scripts/pipeline_options.py",
+    "scripts/runtime_dependencies.py",
+    "scripts/report_explanations.py", "references/setup.md",
 }
 
 

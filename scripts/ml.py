@@ -318,6 +318,9 @@ def parser():
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if __name__ == "__main__" and args.operation in {"inspect", "configure", "capabilities"} and not getattr(args, "legacy", False):
+        from runtime_dependencies import CORE, bootstrap
+        bootstrap(__file__, CORE if args.operation == "capabilities" else ("numpy", "pandas"))
     try:
         if args.operation == "capabilities":
             value, code = capabilities(legacy=args.legacy), 0

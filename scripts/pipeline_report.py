@@ -190,6 +190,7 @@ def generate_report(directory):
     from docx.oxml import OxmlElement
     from docx.oxml.ns import qn
     from docx.shared import Inches, Pt, RGBColor
+    from report_explanations import introduction, preprocessing, metric_explanation, figure_guide
 
     directory = Path(directory)
     s = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
@@ -217,7 +218,7 @@ def generate_report(directory):
             border.getparent().remove(border)
         st.font.color.rgb = RGBColor.from_string("202124")
     normal = doc.styles["Normal"]
-    normal.font.size = Pt(10)
+    normal.font.size = Pt(11)
     normal.paragraph_format.space_after = Pt(6)
     normal.paragraph_format.line_spacing = 1.15
     doc.styles["Title"].font.size = Pt(22)
@@ -227,8 +228,9 @@ def generate_report(directory):
     doc.core_properties.author = "PsyTrainer ML"
     md = []
 
-    def heading(text, level=1):
-        doc.add_heading(text, level)
+    def heading(text, level=1, new_page=False):
+        item = doc.add_heading(text, level)
+        item.paragraph_format.page_break_before = new_page
         md.append(f"{'#' * (level + 1)} {text}\n")
 
     def paragraph(text):
@@ -244,20 +246,32 @@ def generate_report(directory):
     scores = "; ".join(f"{k}={v:.4g}" if v is not None else f"{k}=undefined" for k, v in s["test_metrics"].items())
     paragraph((f"本次分析以 {s['target']} 为预测目标，使用 {s['feature_n']} 个特征、{s['development_n']} 个开发样本及 {s['test_n']} 个独立留出测试样本。依据 {s['cv_folds']} 折交叉验证的 {s['metric']} 选择 {s['selected_model']}。独立测试结果：{scores}。"
                if zh else f"Predicting {s['target']} from {s['feature_n']} features, using {s['development_n']} development samples and {s['test_n']} held-out test samples. Selected {s['selected_model']} using {s['cv_folds']}-fold CV {s['metric']}. Held-out results: {scores}."))
+    heading("先理解这份报告" if zh else "Understanding This Report")
+    for text in introduction(s, zh):
+        paragraph(text)
     heading("方法" if zh else "Methods")
     designs = {"random": ("分类采用分层随机划分和分层交叉验证，回归采用随机划分和 KFold。", "Stratified random splits/CV for classification; random splits/KFold for regression."),
                "group": ("按组隔离开发集与测试集，并采用 GroupKFold；组标识仅用于划分。", "Groups are disjoint between development and test; GroupKFold is used for selection."),
                "time": ("按唯一时间值分块，采用前向验证；同一时间值不跨边界，训练严格早于验证和测试。", "Forward validation over unique time blocks; equal timestamps stay together and training precedes validation/test.")}
     paragraph(designs[s["split"]][0 if zh else 1])
-    paragraph((f"测试集来源：{'外部提供的独立数据' if s['external_test'] else '在模型选择前划出的内部留出集'}。随机种子={s['seed']}；时间间隔={s['gap']} 个时间块。预处理配置：{json.dumps(s['preprocessing'], ensure_ascii=False)}。所有有学习过程的预处理及重采样均在每个训练折内拟合；测试集不参与拟合和模型选择。"
-               if zh else f"Test source: {'externally supplied data' if s['external_test'] else 'internal holdout reserved before selection'}. Seed={s['seed']}; gap={s['gap']} time blocks. Preprocessing: {json.dumps(s['preprocessing'])}. All learned preprocessing and resampling fit only within each training fold. Test data is excluded from fitting and selection."))
+    paragraph((f"测试集来源：{'外部提供的独立数据' if s['external_test'] else '在模型选择前划出的内部留出集'}。划分时使用固定随机种子 {s['seed']}，便于重复同一分析；时间设计中的间隔为 {s['gap']} 个时间块。固定种子让步骤可重复，不保证换一批样本仍得到完全相同的结论。"
+               if zh else f"Test source: {'externally supplied data' if s['external_test'] else 'internal holdout reserved before selection'}. Seed {s['seed']} supports repeating the split; temporal gap is {s['gap']} blocks. A fixed seed does not guarantee identical conclusions on new samples."))
+    heading("数据怎样进入模型" if zh else "How Data Enters the Model", 2)
+    for text in preprocessing(s, zh):
+        paragraph(text)
+    heading("怎样比较候选模型" if zh else "Comparing Candidate Models", 2)
+    paragraph((f"本次比较 {len(s['comparison'])} 个有可用验证结果的模型：" if zh else
+               f"This run compares {len(s['comparison'])} models with usable validation results: ") +
+              "; ".join(f"{row['model']} ({s['metric']}={row['mean']:.4g})" for row in s['comparison']))
+    paragraph(("模型是从输入生成预测的一套计算规则。不同算法对规律作出不同假设：线性模型用各项输入的加权组合，树模型按条件逐层分支，随机森林汇总多棵树，提升方法逐轮补偿前面的预测错误。复杂模型不一定更好，必须依据同一划分下的验证结果比较。所选模型的名称见摘要，具体设置保存在运行记录中。" if zh else
+               "A model is a rule for converting inputs to predictions. Linear models combine weighted inputs, trees branch on conditions, random forests aggregate trees, and boosting sequentially corrects earlier errors. Complexity does not guarantee quality; compare on shared validation splits. The abstract names the selected model and the run record stores its settings."))
     search = s.get("search", {"method": "none"})
     if search["method"] == "none":
         paragraph("候选模型使用默认或显式指定的固定参数，不执行参数搜索。" if zh else
                   "Candidates use default or explicitly configured fixed parameters; no parameter search is performed.")
     else:
-        paragraph((f"参数搜索方式={search['method']}；共评估 {search['evaluated_candidates']} 个候选，其中 {search['failed_candidates']} 个失败。最佳搜索参数：{json.dumps(search['selected_parameters'], ensure_ascii=False)}。所有候选使用相同开发集划分，预处理在每折重新拟合。CV 得分同时用于参数和模型选择，因此不是无偏估计；最终性能依据留出测试集。每折明细见 checkpoints/，搜索明细见 search-results.json。" if zh else
-                   f"Search method={search['method']}; {search['evaluated_candidates']} candidates evaluated, {search['failed_candidates']} failed. Selected search parameters: {json.dumps(search['selected_parameters'])}. Candidates share development folds and refit preprocessing in each fold. CV scores serve both parameter and model selection and are not unbiased estimates; final performance uses the holdout. Fold details: checkpoints/; search details: search-results.json."))
+        paragraph((f"参数指控制模型如何学习的设置。本次采用 {'网格搜索，依次比较预设组合' if search['method'] == 'grid' else '随机搜索，在预算内抽取预设组合'}，共评估 {search['evaluated_candidates']} 个候选，其中 {search['failed_candidates']} 个失败。所有候选使用相同开发集划分，预处理在每折重新拟合。交叉验证得分用于挑选参数和模型，因此胜出分数可能偏乐观；最终性能依据留出测试集。精确设置见 search-results.json 和 summary.json。" if zh else
+                   f"Parameters control how a model learns. This run uses {search['method']} search over predefined configurations, evaluating {search['evaluated_candidates']} candidates with {search['failed_candidates']} failures. Candidates share development folds and refit preprocessing in each fold. Winning CV scores may be optimistic because they select parameters and models; final evaluation uses the holdout. Exact settings are in search-results.json and summary.json."))
     if s["preprocessing"].get("selection") == "forward":
         paragraph("逐步前向筛选仅接收当前训练分区，内部交叉验证采用相同划分设计，并在内部训练折重新拟合预处理及重采样。" if zh else
                   "Forward selection sees only the current training partition; its internal CV follows the same split design and refits preprocessing and resampling within internal training folds.")
@@ -272,12 +286,27 @@ def generate_report(directory):
     md.append("| Metric | Value |\n|---|---|\n" + "\n".join(f"| {k} | {v} |" for k, v in s["test_metrics"].items()) + "\n")
     paragraph(("测试结果仅描述本次划分的泛化表现；内部留出集不等同于跨机构或前瞻性外部验证。"
                if zh else "Test results describe this split; an internal holdout is not cross-site or prospective external validation."))
+    heading("把指标翻译成实际含义" if zh else "What the Metrics Mean", 2)
+    for key, value in s['test_metrics'].items():
+        label, text = metric_explanation(key, value, zh)
+        heading(label, 2)
+        paragraph(text)
+    strategy = s.get('baseline', {}).get('strategy', '')
+    baseline = {"mean": ("始终预测开发集目标的平均值", "always predicts the development outcome mean"),
+                "prior": ("按开发集类别比例给出概率，并按最多见类别作类别预测", "uses development class frequencies as probabilities and predicts the most frequent class"),
+                "most_frequent": ("始终预测开发集中最多见的类别", "always predicts the most frequent development class")}.get(strategy)
+    paragraph((("简单基线" + baseline[0] + "。" if baseline else "简单基线只使用开发数据学习简单预测规则。") +
+               "它不使用特征中的复杂规律，用来判断复杂模型是否带来额外价值。指标提升到什么程度才值得使用，需要结合容许误差、漏检和误报成本事先确定；本报告没有替使用者设定这些标准。" if zh else
+               ("The dummy baseline " + baseline[1] + ". " if baseline else "The dummy learns a simple rule from development data. ") +
+               "It uses no complex feature patterns. Its purpose is to test added predictive value. Practical acceptability needs predetermined error tolerances and costs, which this report does not invent."))
 
     heading("证据解读与改进方向" if zh else "Evidence and Improvement Directions")
     for finding in analysis["findings"]:
         paragraph(finding["zh" if zh else "en"])
         paragraph(("证据：" if zh else "Evidence: ") + finding["source"])
     heading("指标不确定性" if zh else "Metric Uncertainty")
+    paragraph(("同一个模型换一批测试样本，分数通常会变化。Bootstrap 是从现有测试样本中有放回地重复抽取，观察分数有多大波动。区间越宽，说明当前证据对分数的定位越不精确；它不是未来某个人的结果范围，也不表示有 95% 的人会预测正确。组别数据要整组抽取，时间数据不能随意打乱为独立样本。" if zh else
+               "The same model can score differently on a new test sample. Bootstrap repeatedly resamples existing test units with replacement to examine score variation. Wider intervals indicate less precision under that procedure. They are not individual outcome ranges or a claim of 95% correct predictions. Grouped data require whole-group resampling; temporal observations cannot be freely treated as independent."))
     interval = analysis["interval"]
     paragraph((f"重采样方法：{interval['method']}；请求重复次数={interval['requested_repeats']}，重采样单位数={interval['units']}。区间为固定已训练模型下的 95% 百分位区间，不涵盖训练、模型选择及数据采集的不确定性。类别不足导致不可计算的重复会被剔除，必须至少有 100 次且达到请求次数的 80% 才输出区间。"
                if zh else f"Method: {interval['method']}; requested repeats={interval['requested_repeats']}, resampling units={interval['units']}. 95% percentile intervals condition on the fitted model and exclude training, selection and sampling-design uncertainty. Undefined replicates are omitted; at least 100 and 80% of requested repeats must be valid."))
@@ -299,20 +328,24 @@ def generate_report(directory):
         md.append("| " + " | ".join(values) + " |\n")
 
     for number, figure in enumerate(captions, 1):
-        doc.add_page_break()
-        heading((f"图 {number} | " if zh else f"Figure {number} | ") + figure["name"])
+        figure_title, explanations = figure_guide(figure, s, analysis, zh)
+        heading((f"图 {number} " if zh else f"Figure {number} ") + figure_title, new_page=True)
         path = directory / "figures" / f"{figure['name']}.png"
         from PIL import Image
         with Image.open(path) as image:
             width, height = image.size
-        display_width = min(6.7, 6.3 * width / height)
+        display_width = min(6.7, 4.5 * width / height)
         doc.add_picture(str(path), width=Inches(display_width))
         doc.add_paragraph(figure["caption"], style="Caption")
         paragraph(("源数据：" if zh else "Source data: ") + figure["source"])
         md.append(f"![{figure['name']}](figures/{figure['name']}.png)\n\n{figure['caption']}\n")
+        for label, text in explanations:
+            heading(label, 2)
+            paragraph(text)
 
-    doc.add_page_break()
-    heading("讨论与局限" if zh else "Discussion and Limitations")
+    heading("讨论与局限" if zh else "Discussion and Limitations", new_page=True)
+    paragraph(("可执行的下一步应由证据决定：先核对错误集中的记录是否存在录入、测量或标签问题，再在开发集内比较更简单的模型、不同特征组合或预处理。每次只改变能够解释的因素，记录验证分数与失败项。如果改进想法来自本次测试图，那么这批测试数据已经参与了研究决策，改进后的模型需要新的独立测试数据。" if zh else
+               "Use the evidence to choose next steps: audit measurement and label quality among difficult cases, then compare simpler models, feature sets or preprocessing within development data. Change interpretable factors and record validation scores and failures. Improvements prompted by these test plots require a new independent test set, since this one has informed the research decisions."))
     limitations = [
         "交叉验证用于选择模型，最佳交叉验证分数可能偏乐观。最终性能以独立测试结果为准。",
         "折间标准差及置换标准差不是置信区间；测试指标区间如有提供，仅为固定模型下的重采样区间。本报告不作显著性检验或因果推断。",
