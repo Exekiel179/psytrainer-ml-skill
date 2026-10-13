@@ -72,15 +72,16 @@ Default: `python scripts/install_runtime.py`, CPython 3.12-3.14, `.venv`,
 `runtime.json`. All 21 model dependencies and report libraries are installed.
 Neither source imports nor provenance collection requires PsyTrainer.
 
-Original INI compatibility only (optional wheel): pass
-`python scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer.whl`,
-or `--legacy` alone when a single `PsyTrainer-*.whl` is discoverable under the
-Skill root / `vendor/` or via `PSYTRAINER_WHEEL`. Pipeline setup never needs this
-wheel. Legacy uses matching CPython, `.venv-legacy`, and `runtime-legacy.json`.
-Existing INI files and model directories still use
+Original INI compatibility is optional and never uses CLI wheel/legacy flags.
+Configure `PSYTRAINER_WHEEL`, `config/optional-wheel.path`, or place a single
+`PsyTrainer-*.whl` under the Skill root / `vendor/`, then run
+`python scripts/install_runtime.py`. When a wheel is found, setup also creates
+matching CPython, `.venv-legacy`, and `runtime-legacy.json`. Without a wheel,
+Pipeline-only setup remains. Existing INI files and model directories still use
 `ml.py configure/train/predict/report`, `PsyTrainer.py` and `batch_predict.py`.
 The two environments coexist; neither installation deletes the other's marker.
-`--recreate` replaces only the selected mode's environment.
+`--recreate` recreates the Pipeline venv, and the optional legacy venv when a
+wheel is still discoverable.
 
 Pre-migration `.venv` installations containing PsyTrainer continue to work; no
 automatic uninstall or INI conversion occurs. Setup refreshes runtime metadata;

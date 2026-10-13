@@ -8,11 +8,12 @@ Cross-platform (macOS / Linux / Windows):
   - Creates a local .venv under the skill root
   - Creates an environment without downloading task dependencies by default
   - Installs selected packages on demand, or all requirements with --all
-  - Optionally installs PsyTrainer in a separate .venv-legacy
+  - Optionally installs PsyTrainer in a separate .venv-legacy when a wheel is
+    discovered (PSYTRAINER_WHEEL, config/optional-wheel.path, or one local match)
   - Writes runtime.json so tasks check and repair their own dependencies
 
 Windows notes:
-  - Legacy mode selects the Python version declared by the wheel
+  - Optional wheel installs select the Python version declared by the wheel
   - venv interpreter is .venv\\Scripts\\python.exe
   - Wheel globs are expanded in Python (cmd.exe does not expand *)
 """
@@ -146,11 +147,17 @@ def ensure_venv(base_cmd: list[str], *, recreate: bool) -> Path:
     return py
 
 
+OPTIONAL_WHEEL_CONFIG = ROOT / "config" / "optional-wheel.path"
+
+
 def resolve_wheel(spec: str | None) -> Path:
     """Resolve a wheel path; expand globs in-process (needed on Windows cmd)."""
     if not spec:
-        raise SystemExit("PsyTrainer is not distributed with this Skill. For existing INI jobs only, "
-                         "provide --legacy --wheel /path/to/PsyTrainer.whl; new analyses use Pipeline.")
+        raise SystemExit(
+            "PsyTrainer wheel path is empty. Set PSYTRAINER_WHEEL, write "
+            "config/optional-wheel.path, or place a single PsyTrainer-*.whl "
+            "under the Skill root or vendor/. New analyses use Pipeline and "
+            "do not need a wheel.")
     raw = spec.strip().strip('"').strip("'")
     path = Path(raw).expanduser()
     if path.is_file():
@@ -198,23 +205,33 @@ def resolve_wheel(spec: str | None) -> Path:
         raise SystemExit(f"PsyTrainer wheel not found for pattern: {spec}")
     if len(uniq) > 1:
         listing = "\n".join(f"  - {item}" for item in uniq)
-        raise SystemExit(f"multiple wheels matched {spec!r}; pass one path:\n{listing}")
+        raise SystemExit(f"multiple wheels matched {spec!r}; set one path in "
+                         f"PSYTRAINER_WHEEL or {OPTIONAL_WHEEL_CONFIG.name}:\n{listing}")
     return uniq[0]
 
 
 def discover_optional_wheel() -> Path | None:
     """Locate an optional external PsyTrainer wheel; return None when absent.
 
-    Pipeline setup never requires a wheel. Legacy INI mode may call this when
-    ``--wheel`` is omitted so a single local match or ``PSYTRAINER_WHEEL`` can
-    be used; missing or ambiguous locations skip rather than force installation.
+    Discovery order: ``PSYTRAINER_WHEEL``, ``config/optional-wheel.path``, then a
+    single ``PsyTrainer-*.whl`` under the Skill root or ``vendor/``. Pipeline
+    setup never requires a wheel; missing or ambiguous sources skip quietly.
     """
+    candidates: list[tuple[str, str]] = []
     env = (os.environ.get("PSYTRAINER_WHEEL") or "").strip()
     if env:
+        candidates.append(("PSYTRAINER_WHEEL", env))
+    if OPTIONAL_WHEEL_CONFIG.is_file():
+        for line in OPTIONAL_WHEEL_CONFIG.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#"):
+                candidates.append((str(OPTIONAL_WHEEL_CONFIG), line))
+                break
+    for source, spec in candidates:
         try:
-            return resolve_wheel(env)
+            return resolve_wheel(spec)
         except SystemExit:
-            print(f"optional wheel from PSYTRAINER_WHEEL not usable ({env}); skipping", flush=True)
+            print(f"optional wheel from {source} not usable ({spec}); skipping", flush=True)
             return None
     matches: list[Path] = []
     seen: set[Path] = set()
@@ -235,7 +252,8 @@ def discover_optional_wheel() -> Path | None:
         return matches[0]
     if len(matches) > 1:
         listing = "\n".join(f"  - {item}" for item in matches)
-        print("multiple optional PsyTrainer wheels found; pass --wheel explicitly:\n" + listing, flush=True)
+        print("multiple optional PsyTrainer wheels found; set PSYTRAINER_WHEEL or "
+              f"{OPTIONAL_WHEEL_CONFIG.relative_to(ROOT)} to one path:\n{listing}", flush=True)
     return None
 
 
@@ -394,8 +412,11 @@ def write_runtime(py: Path, status: dict[str, object], wheel: str | None, base_c
 def runtime_location(legacy: bool):
     global VENV_DIR, RUNTIME_JSON
     previous = VENV_DIR, RUNTIME_JSON
+    # Always rebind from current ROOT so tests and relocated installs stay consistent.
     if legacy:
         VENV_DIR, RUNTIME_JSON = ROOT / ".venv-legacy", ROOT / "runtime-legacy.json"
+    else:
+        VENV_DIR, RUNTIME_JSON = ROOT / ".venv", ROOT / "runtime.json"
     try:
         yield
     finally:
@@ -405,16 +426,12 @@ def runtime_location(legacy: bool):
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Configure the local Python runtime and check dependencies (Windows/macOS/Linux)",
-        epilog="Place the Skill in your host's skill directory first. Setup checks dependencies without running sample training.",
+        epilog="Place the Skill in your host's skill directory first. Setup checks dependencies without running sample training. "
+               "Optional PsyTrainer wheels are discovered via PSYTRAINER_WHEEL, config/optional-wheel.path, or a single local PsyTrainer-*.whl.",
     )
     parser.add_argument(
         "--python",
-        help='CPython 3.12-3.14 for Pipeline; wheel-matching Python for --legacy',
-    )
-    parser.add_argument(
-        "--wheel",
-        help="Optional external PsyTrainer wheel for existing INI jobs only "
-             "(implies --legacy). Omit for Pipeline; globs work on Windows.",
+        help="CPython 3.12-3.14 for Pipeline; optional wheel installs use the wheel's declared Python",
     )
     parser.add_argument(
         "--recreate",
@@ -438,23 +455,28 @@ def main(argv: list[str] | None = None) -> int:
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--all", action="store_true", help="Install every dependency (release QA or explicit preinstallation)")
     selection.add_argument("--packages", nargs="+", choices=MODULES, help="Install/check only these task dependencies")
-    parser.add_argument("--legacy", action="store_true",
-                        help="Existing INI compatibility only; uses --wheel or an optional discovered wheel")
     args = parser.parse_args(argv)
     if args.timeout < 1 or args.retries < 0 or args.max_seconds < 1:
         parser.error("timeout and max-seconds must be positive; retries must be nonnegative")
-    if args.check and (args.recreate or args.wheel or args.legacy):
-        parser.error("--check cannot be combined with --recreate, --wheel or --legacy")
+    if args.check and args.recreate:
+        parser.error("--check cannot be combined with --recreate")
     if args.wheelhouse and args.index_url:
         parser.error("--wheelhouse is offline and cannot be combined with --index-url")
-    if args.wheel:
-        args.legacy = True
-    with runtime_location(args.legacy):
-        return install(args)
+    with runtime_location(False):
+        code = install(args, wheel_path=None)
+    if args.check:
+        return code
+    wheel = discover_optional_wheel()
+    if wheel is None:
+        print("optional PsyTrainer wheel not configured; Pipeline runtime only", flush=True)
+        return code
+    print(f"optional wheel detected: {wheel}", flush=True)
+    with runtime_location(True):
+        return install(args, wheel_path=wheel)
 
 
-def install(args) -> int:
-
+def install(args, *, wheel_path: Path | None) -> int:
+    legacy = wheel_path is not None
     previous_settings = {}
     if RUNTIME_JSON.is_file():
         previous_settings = json.loads(RUNTIME_JSON.read_text()).get("installation", {})
@@ -479,22 +501,6 @@ def install(args) -> int:
         RUNTIME_JSON.write_text(json.dumps(payload, indent=2) + "\n")
         print("Local runtime check passed; no packages downloaded", flush=True)
         return 0
-    wheel_spec = (args.wheel or "").strip() or None
-    wheel_path = None
-    if args.legacy:
-        # Explicit --wheel is required to resolve; otherwise try optional discovery.
-        # Pipeline mode never loads a vendor wheel even if one is present.
-        if wheel_spec:
-            wheel_path = resolve_wheel(wheel_spec)
-        else:
-            wheel_path = discover_optional_wheel()
-            if wheel_path is None:
-                raise SystemExit(
-                    "PsyTrainer is not distributed with this Skill. For existing INI jobs only, "
-                    "provide --legacy --wheel /path/to/PsyTrainer.whl; or place a single "
-                    "PsyTrainer-*.whl under the Skill root / vendor/ (or set PSYTRAINER_WHEEL). "
-                    "New analyses use Pipeline and do not need a wheel.")
-            print(f"using optional wheel: {wheel_path}", flush=True)
     required = wheel_python(wheel_path) if wheel_path else None
     wheelhouse = args.wheelhouse
     if wheelhouse is None and (ROOT / "wheelhouse").is_dir():
@@ -506,7 +512,7 @@ def install(args) -> int:
     manifest = wheelhouse.parent / "bundle.json" if wheelhouse else None
     if manifest and manifest.is_file():
         bundle = json.loads(manifest.read_text(encoding="utf-8"))
-        if args.legacy and bundle["profile"] != "legacy":
+        if legacy and bundle["profile"] != "legacy":
             raise SystemExit("this offline bundle contains Pipeline dependencies only; install historical INI dependencies separately")
         bundled_python = tuple(bundle["python"])
         if bundled_python not in SUPPORTED_PYTHONS or (required and required != bundled_python):
@@ -515,25 +521,27 @@ def install(args) -> int:
     base_cmd = resolve_base_python(args.python, required)
     py = ensure_venv(base_cmd, recreate=args.recreate)
     from runtime_dependencies import MODULES, requirements, repair_message
-    names = list(MODULES) if args.all or args.legacy else (args.packages or [])
+    names = list(MODULES) if args.all or legacy else (args.packages or [])
     settings = dict(index_url=args.index_url, timeout=args.timeout, retries=args.retries,
                     max_seconds=args.max_seconds, installer=args.installer)
     if names:
         try:
             install_requirements(py, wheel_path, wheelhouse, **settings,
-                                 specs=None if args.all or args.legacy else requirements(names))
+                                 specs=None if args.all or legacy else requirements(names))
         except (SystemExit, subprocess.SubprocessError) as exc:
             raise SystemExit(repair_message(py, names, str(exc))) from exc
     try:
-        status = verify(py, legacy=args.legacy, **({} if args.legacy else {"names": names})) if names else {}
+        status = verify(py, legacy=legacy, **({} if legacy else {"names": names})) if names else {}
     except (SystemExit, subprocess.SubprocessError) as exc:
         raise SystemExit(repair_message(py, names, str(exc))) from exc
     write_runtime(py, status, str(wheel_path.resolve()) if wheel_path else None, base_cmd)
     payload = json.loads(RUNTIME_JSON.read_text())
     payload["installation"] = dict(settings, wheelhouse=str(wheelhouse.absolute()) if wheelhouse else None)
     RUNTIME_JSON.write_text(json.dumps(payload, indent=2) + "\n")
-    print("Python environment ready; task dependencies are checked and installed when used", flush=True)
-    print("Runtime ready. Load the Skill through your host to start using it.", flush=True)
+    label = "legacy INI" if legacy else "Pipeline"
+    print(f"{label} Python environment ready; task dependencies are checked and installed when used", flush=True)
+    if not legacy:
+        print("Runtime ready. Load the Skill through your host to start using it.", flush=True)
     return 0
 
 

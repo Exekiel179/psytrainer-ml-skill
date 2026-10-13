@@ -55,7 +55,7 @@ class RegistryTests(unittest.TestCase):
             self.assertEqual(catalog["regression"], list(registry.MODELS["regression"]))
             self.assertIn("r2", catalog["metrics"]["regression"])
             self.assertNotIn("PsyTrainer", registry.versions())
-            with self.assertRaisesRegex(RuntimeError, "--legacy"):
+            with self.assertRaisesRegex(RuntimeError, "optional external PsyTrainer wheel"):
                 ml.capabilities(legacy=True)
 
     @unittest.skipUnless(importlib.util.find_spec("ccpl_training_models"), "optional original engine not installed")

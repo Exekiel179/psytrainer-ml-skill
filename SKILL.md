@@ -44,7 +44,8 @@ default. Scripts already write the technical report; no LLM rewrite is needed
 unless requested. Load only the relevant reference section:
 
 - [Setup](references/setup.md): Pipeline without a PsyTrainer wheel (default);
-  optional `--legacy --wheel` for historical INI only.
+  optional wheel via `PSYTRAINER_WHEEL`, `config/optional-wheel.path`, or one
+  local `PsyTrainer-*.whl` for historical INI only (no CLI wheel/legacy flags).
 - [Pipeline](references/pipeline.md): external tests, preprocessing, bounded search,
   resampling, model presets, resume, report layout and statistical limits.
   `ml.py capabilities` lists available algorithms/options.

@@ -1,0 +1,4 @@
+# Optional path or glob to an external PsyTrainer wheel for historical INI jobs.
+# Copy to optional-wheel.path (same directory) or set PSYTRAINER_WHEEL instead.
+# Leave unset / omit the file for Pipeline-only setup.
+# /path/to/PsyTrainer-0.2.0-cp314-none-any.whl

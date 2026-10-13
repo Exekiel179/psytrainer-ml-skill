@@ -22,16 +22,19 @@ class DependencyTests(unittest.TestCase):
         deps._checked.clear()
 
     def test_default_setup_creates_environment_without_downloading(self):
-        with tempfile.TemporaryDirectory() as temp, \
-             patch.object(install_runtime, "RUNTIME_JSON", Path(temp) / "runtime.json"), \
-             patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
-             patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
-             patch.object(install_runtime, "install_requirements") as install, \
-             patch.object(install_runtime, "verify") as verify:
-            install_runtime.main([])
-            install.assert_not_called()
-            verify.assert_not_called()
-            state = json.loads((Path(temp) / "runtime.json").read_text())
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.object(install_runtime, "ROOT", root), \
+                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
+                 patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
+                 patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
+                 patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
+                 patch.object(install_runtime, "install_requirements") as install, \
+                 patch.object(install_runtime, "verify") as verify:
+                install_runtime.main([])
+                install.assert_not_called()
+                verify.assert_not_called()
+            state = json.loads((root / "runtime.json").read_text())
             self.assertTrue(state["ready"])
             self.assertFalse(state["capabilities"]["pipeline"])
             self.assertEqual(state["dependencyMode"], "on-demand")

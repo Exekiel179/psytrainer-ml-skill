@@ -1,11 +1,13 @@
 # Commands
 
-This reference describes the original INI engine. Install with
-`scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer.whl` with a user-supplied package and use `runtime-legacy.json` -> `python`
-as `$PY`. For the independent Pipeline use [pipeline.md](pipeline.md).
-`ml.py capabilities` lists Pipeline models; `ml.py capabilities --legacy` lists
-the original engine's models and metrics. Commands print compact JSON;
-read only files referenced by the response when more detail is needed.
+This reference describes the original INI engine. Configure an optional
+PsyTrainer wheel (`PSYTRAINER_WHEEL`, `config/optional-wheel.path`, or one local
+`PsyTrainer-*.whl`), run `scripts/install_runtime.py`, and use
+`runtime-legacy.json` -> `python` as `$PY`. For the independent Pipeline use
+[pipeline.md](pipeline.md). `ml.py capabilities` lists Pipeline models;
+`PSYTRAINER_LEGACY=1 "$PY" scripts/ml.py capabilities` lists the original
+engine's models and metrics. Commands print compact JSON; read only files
+referenced by the response when more detail is needed.
 
 ## Inspect and Configure
 
@@ -22,7 +24,7 @@ Feature values must be finite numbers. Classification presets require binary
 
 Defaults: `--preset quick` selects two models; `--preset standard` selects three.
 Use repeatable `--model TAG` for explicit algorithms and `--metric NAME` for the
-primary selection metric; get supported values from `capabilities --legacy` only when needed.
+primary selection metric; get supported values with `PSYTRAINER_LEGACY=1` capabilities only when needed.
 `--cv 5` controls fold count; repeat `--target` to select multiple label columns.
 Generated configs remember target selection and use no preprocessing, no
 resampling, no parameter grid search, and no deletion of existing results.

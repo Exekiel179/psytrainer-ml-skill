@@ -22,31 +22,36 @@ the environment exists, not that optional packages are installed.
 
 ## Pipeline (default, no PsyTrainer wheel)
 
-Omit `--wheel` / `--legacy`. New train / predict / report workflows use the local
-Pipeline and never require a PsyTrainer `.whl`. A stale `PSYTRAINER_WHEEL`
-environment variable is ignored in this mode. Offline dependency directories use
-`--wheelhouse PATH` (prebuilt packages only), which is separate from PsyTrainer.
+New train / predict / report workflows use the local Pipeline and never require
+a PsyTrainer `.whl`. Offline dependency directories use `--wheelhouse PATH`
+(prebuilt packages only), which is separate from PsyTrainer.
 
 ```bash
 python3 scripts/install_runtime.py
 "$PY" scripts/pipeline_train.py train ...
 ```
 
-## Optional PsyTrainer wheel (legacy INI only)
+## Optional PsyTrainer wheel (historical INI only)
 
-Supply an external wheel only for historical INI jobs. Pipeline setup stays
-available without it. Load with an explicit path, or let optional discovery use a
-single `PsyTrainer-*.whl` under the Skill root / `vendor/`, or `PSYTRAINER_WHEEL`:
+Do not pass CLI flags for wheel/legacy. Configure one optional source, then rerun
+the same setup command; when a wheel is found, setup also writes `.venv-legacy`
+and `runtime-legacy.json`. When none is found, setup stays Pipeline-only.
+
+| Option | How |
+|---|---|
+| Environment | `export PSYTRAINER_WHEEL=/path/to/PsyTrainer-0.2.0-cp314-none-any.whl` |
+| Config file | Copy `config/optional-wheel.path.example` to `config/optional-wheel.path` and put one path/glob on a non-comment line |
+| Auto-discover | Place a single `PsyTrainer-*.whl` under the Skill root or `vendor/` |
 
 ```bash
-python3 scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer-0.2.0-cp314-none-any.whl
-# or, with one discoverable wheel present:
-python3 scripts/install_runtime.py --legacy
+export PSYTRAINER_WHEEL=/path/to/PsyTrainer-0.2.0-cp314-none-any.whl
+python3 scripts/install_runtime.py
+# use runtime-legacy.json -> python for historical INI jobs
 ```
 
-This writes `.venv-legacy` and `runtime-legacy.json`. Missing or ambiguous wheels
-are skipped for discovery and require an explicit `--wheel`. See
-[migration.md](migration.md).
+Missing or ambiguous wheels are skipped. See [migration.md](migration.md).
+To list historical INI engine capabilities after that environment exists:
+`PSYTRAINER_LEGACY=1 "$PY_LEGACY" scripts/ml.py capabilities`.
 
 Task commands check their dependencies each time, without network access when
 requirements are satisfied. Do not preinstall everything or run sample training.
