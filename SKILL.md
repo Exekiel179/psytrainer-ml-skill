@@ -20,7 +20,11 @@ see setup for mirrors/offline repair. Never skip dependencies or claim success.
 
 CSV first column: unique sample ID; feature/label IDs must match. Predictors are
 numeric; targets cannot be missing. Ask only about ambiguous task/target.
-Defaults: 20% holdout, 5-fold CV, two models, Chinese explanatory Word report.
+Defaults: 20% holdout, 5-fold CV, two models, Chinese technical Word report
+(abstract / methods / results / discussion). Each successful model gets its own
+results section; with many models, also write `reports/<Model>.md` (+ `.docx`)
+indexed by the overview report. Appendix tables summarize; they are not the only
+model presentation.
 Use `--task classification` for classes; honor chosen models/metrics. Add a known
 research question with `--question`.
 For repeated subjects/sites use `--split group --metadata meta.csv --group-column subject`;
@@ -36,12 +40,14 @@ joblib/pickle files. Diagnostics do not establish causality or significance.
 Start with CLI JSON; read `analysis.json` findings only for interpretation and
 log tails on failure. Report actual sample counts, metric, validation and failures.
 Link generated reports/figures; do not read full CSVs, scripts or reports by
-default. Scripts already write detailed beginner explanations; no LLM rewrite
-is needed unless requested. Load only the relevant reference section:
+default. Scripts already write the technical report; no LLM rewrite is needed
+unless requested. Load only the relevant reference section:
 
+- [Setup](references/setup.md): Pipeline without a PsyTrainer wheel (default);
+  optional `--legacy --wheel` for historical INI only.
 - [Pipeline](references/pipeline.md): external tests, preprocessing, bounded search,
-  resampling, model presets, resume and statistical limits. `ml.py capabilities`
-  lists available algorithms/options.
+  resampling, model presets, resume, report layout and statistical limits.
+  `ml.py capabilities` lists available algorithms/options.
 - [Migration](references/migration.md): historical INI/parameter mapping and
   original capability audit; legacy-only [commands](references/commands.md) and
   [configuration](references/configuration.md).

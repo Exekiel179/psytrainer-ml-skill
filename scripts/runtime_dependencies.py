@@ -50,7 +50,7 @@ pending = [Requirement(s) for s in json.loads(sys.argv[1])]
 seen, missing = set(), []
 while pending:
     req = pending.pop()
-    if req.marker and not req.marker.evaluate():
+    if req.marker and not req.marker.evaluate({"extra": ""}):
         continue
     if str(req) in seen:
         continue

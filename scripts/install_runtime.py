@@ -202,6 +202,43 @@ def resolve_wheel(spec: str | None) -> Path:
     return uniq[0]
 
 
+def discover_optional_wheel() -> Path | None:
+    """Locate an optional external PsyTrainer wheel; return None when absent.
+
+    Pipeline setup never requires a wheel. Legacy INI mode may call this when
+    ``--wheel`` is omitted so a single local match or ``PSYTRAINER_WHEEL`` can
+    be used; missing or ambiguous locations skip rather than force installation.
+    """
+    env = (os.environ.get("PSYTRAINER_WHEEL") or "").strip()
+    if env:
+        try:
+            return resolve_wheel(env)
+        except SystemExit:
+            print(f"optional wheel from PSYTRAINER_WHEEL not usable ({env}); skipping", flush=True)
+            return None
+    matches: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in ("PsyTrainer-*.whl", "vendor/PsyTrainer-*.whl"):
+        try:
+            found = list(ROOT.glob(pattern))
+        except OSError:
+            found = []
+        for item in found:
+            try:
+                resolved = item.resolve()
+            except OSError:
+                continue
+            if resolved.is_file() and resolved not in seen:
+                seen.add(resolved)
+                matches.append(resolved)
+    if len(matches) == 1:
+        return matches[0]
+    if len(matches) > 1:
+        listing = "\n".join(f"  - {item}" for item in matches)
+        print("multiple optional PsyTrainer wheels found; pass --wheel explicitly:\n" + listing, flush=True)
+    return None
+
+
 def wheel_python(wheel: Path) -> tuple[int, int]:
     """Read the wheel's declared tag without guessing from a filename."""
     try:
@@ -376,7 +413,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--wheel",
-        help="Explicit external PsyTrainer wheel for existing INI jobs only. Globs work on Windows.",
+        help="Optional external PsyTrainer wheel for existing INI jobs only "
+             "(implies --legacy). Omit for Pipeline; globs work on Windows.",
     )
     parser.add_argument(
         "--recreate",
@@ -400,7 +438,8 @@ def main(argv: list[str] | None = None) -> int:
     selection = parser.add_mutually_exclusive_group()
     selection.add_argument("--all", action="store_true", help="Install every dependency (release QA or explicit preinstallation)")
     selection.add_argument("--packages", nargs="+", choices=MODULES, help="Install/check only these task dependencies")
-    parser.add_argument("--legacy", action="store_true", help="Existing INI compatibility only; requires an external --wheel")
+    parser.add_argument("--legacy", action="store_true",
+                        help="Existing INI compatibility only; uses --wheel or an optional discovered wheel")
     args = parser.parse_args(argv)
     if args.timeout < 1 or args.retries < 0 or args.max_seconds < 1:
         parser.error("timeout and max-seconds must be positive; retries must be nonnegative")
@@ -441,7 +480,21 @@ def install(args) -> int:
         print("Local runtime check passed; no packages downloaded", flush=True)
         return 0
     wheel_spec = (args.wheel or "").strip() or None
-    wheel_path = resolve_wheel(wheel_spec) if args.legacy else None
+    wheel_path = None
+    if args.legacy:
+        # Explicit --wheel is required to resolve; otherwise try optional discovery.
+        # Pipeline mode never loads a vendor wheel even if one is present.
+        if wheel_spec:
+            wheel_path = resolve_wheel(wheel_spec)
+        else:
+            wheel_path = discover_optional_wheel()
+            if wheel_path is None:
+                raise SystemExit(
+                    "PsyTrainer is not distributed with this Skill. For existing INI jobs only, "
+                    "provide --legacy --wheel /path/to/PsyTrainer.whl; or place a single "
+                    "PsyTrainer-*.whl under the Skill root / vendor/ (or set PSYTRAINER_WHEEL). "
+                    "New analyses use Pipeline and do not need a wheel.")
+            print(f"using optional wheel: {wheel_path}", flush=True)
     required = wheel_python(wheel_path) if wheel_path else None
     wheelhouse = args.wheelhouse
     if wheelhouse is None and (ROOT / "wheelhouse").is_dir():

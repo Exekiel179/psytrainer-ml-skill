@@ -30,6 +30,40 @@ class InstallRuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, "provide --legacy --wheel"):
             install_runtime.resolve_wheel(None)
 
+    def test_optional_wheel_discovery_skips_when_absent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            with patch.object(install_runtime, "ROOT", root), patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("PSYTRAINER_WHEEL", None)
+                self.assertIsNone(install_runtime.discover_optional_wheel())
+            wheel = root / "PsyTrainer-0.2.0-cp313-none-any.whl"
+            wheel.write_bytes(b"wheel")
+            with patch.object(install_runtime, "ROOT", root), patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("PSYTRAINER_WHEEL", None)
+                self.assertEqual(install_runtime.discover_optional_wheel(), wheel.resolve())
+            (root / "PsyTrainer-0.1.0-cp313-none-any.whl").write_bytes(b"other")
+            with patch.object(install_runtime, "ROOT", root), patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("PSYTRAINER_WHEEL", None)
+                self.assertIsNone(install_runtime.discover_optional_wheel())
+
+    def test_legacy_without_wheel_uses_optional_discovery(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            wheel = root / "PsyTrainer-0.2.0-cp313-none-any.whl"
+            wheel.write_bytes(b"wheel")
+            with patch.object(install_runtime, "ROOT", root), \
+                 patch.object(install_runtime, "discover_optional_wheel", return_value=wheel), \
+                 patch.object(install_runtime, "wheel_python", return_value=(3, 13)), \
+                 patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
+                 patch.object(install_runtime, "ensure_venv", return_value=root / ".venv-legacy/bin/python"), \
+                 patch.object(install_runtime, "install_requirements") as install, \
+                 patch.object(install_runtime, "verify", return_value={"ccpl_training_models": True}):
+                self.assertEqual(install_runtime.main(["--legacy"]), 0)
+                self.assertEqual(install.call_args.args[1], wheel)
+            payload = json.loads((root / "runtime-legacy.json").read_text())
+            self.assertEqual(payload["profile"], "legacy")
+            self.assertTrue(str(payload["wheel"]).endswith(wheel.name))
+
     def test_external_wheel_metadata_and_corruption(self):
         with tempfile.TemporaryDirectory() as temp:
             wheel = Path(temp) / "external.whl"

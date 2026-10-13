@@ -9,8 +9,8 @@
 - 使用 Pipeline 在每个训练折内拟合预处理，支持缺失值填补、标准化、特征筛选、PCA 和分类重采样。
 - 支持随机、分组、时间交叉验证，以及内部留出测试集或单独提供的外部测试集。
 - 比较候选模型，分析训练与验证差距、相对基线的收益、误差结构、校准、特征依赖、输入分布变化和分组/时间稳定性。
-- 输出 PDF、可编辑 SVG、600 dpi PNG 图表，以及中文或英文的 `report.docx` 和 `report.md`。
-- 报告面向无机器学习背景的读者，解释任务、数据划分、预处理和指标，并逐图说明读法、本次实测结果及解释边界。
+- 输出 PDF、可编辑 SVG、600 dpi PNG 图表，以及中文或英文的技术报告 `report.docx` / `report.md`。
+- 报告采用摘要—方法—结果—讨论体例；每个成功训练的模型有独立结果节（模型较多时另写 `reports/<模型>.md`），汇总表仅作附录。
 - 保存包含预处理的模型、预测结果、数据划分、指标和来源记录，便于复核。
 - 支持有预算的网格/随机搜索、逐步前向与 F 阈值筛选、七种分类重采样，以及校验数据和配置后续跑。
 
@@ -102,6 +102,8 @@ Windows CMD 用户在 Skill 目录内执行 `scripts\install_runtime.cmd`。
 
 运行环境配置脚本默认只创建 `.venv` 并记录解释器路径，不下载模型依赖。`runtime.json` 的 `ready: true` 表示环境已创建；每次执行任务都会重新检查本次需要的依赖及版本，不以旧标记代替检查。
 
+默认 Pipeline 路径不需要 PsyTrainer wheel；历史 INI 兼容才用可选
+`--legacy --wheel /path/to/PsyTrainer.whl`（详见 [setup](references/setup.md)）。
 默认训练只准备基础建模、绘图和 Word 报告依赖；选用 LightGBM、XGBoost、CatBoost 时才安装相应库，使用重采样时才安装 imbalanced-learn。预测按所加载模型补齐依赖，重新生成报告不安装无关模型库。已有包满足要求时不联网下载。主动预装某个包可用 `--packages xgboost`；只有明确需要完整预装或发布测试时才用 `--all`。
 
 macOS 如遇 LightGBM 的 OpenMP 动态库错误，需要安装系统库 `brew install libomp` 后重试。安装过程中会显示原始错误。
@@ -188,7 +190,8 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 
 | 文件 | 内容 |
 |---|---|
-| `report.docx` / `report.md` | 方法、实测结果、图表、局限和来源记录 |
+| `report.docx` / `report.md` | 技术报告：方法、各模型结果、图表、讨论与附录 |
+| `reports/<模型>.*` | 模型数较多时的分模型结果报告（总报告中索引） |
 | `figures/` | PDF、SVG、PNG 图及图注/数据来源清单 |
 | `summary.json` / `analysis.json` | 指标、模型比较、数值证据和诊断结论 |
 | `pipeline.joblib` | 拟合后的预处理与模型，可用于新数据预测 |

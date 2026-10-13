@@ -158,13 +158,28 @@ The command returns one compact JSON result. Full artifacts remain on disk:
 | `strata-metrics.csv`, `strata-membership.csv` | Group or ordered time-block performance with counts and auditable membership |
 | `importance.csv`, `importance-repeats.csv` | Test permutation importance, all features and repeats |
 | `figures/` | 180 mm figures in PDF, editable SVG and 600 dpi PNG; caption/source manifest |
-| `report.docx`, `report.md` | Structured methods, results, figures, limitations, provenance |
+| `report.docx`, `report.md` | Technical report: abstract, methods, per-model results, figures, discussion, appendices |
+| `reports/<Model>.md`, `.docx` | Per-model results when ≥4 models succeed (indexed by the overview report) |
 | `run.log` | Detailed model output and warnings |
 
 Use `--language zh` (default) or `en`; `--question "..."` adds the actual research
 question. Reports are deterministic templates filled from measured results,
 with no LLM calls, invented references or novelty claims. Report regeneration
 reads JSON/CSVs rather than loading a pickle or retraining.
+
+Reports use an academic abstract/methods/results/discussion structure, with
+plain-language metric definitions in an appendix. Results retain measured values,
+baseline direction and supported intervals. Every successfully trained model has
+its own results subsection (validation folds, search configuration when present,
+and held-out metrics for the selected model only). When four or more models
+succeed, the overview report indexes dedicated `reports/<ModelTag>.md` and
+`.docx` files instead of inlining every section. A validation summary table is
+appendix-only and must not be the sole model presentation. General limitations
+are consolidated in the discussion; figure notes explain only their local
+statistical meaning. The editorial approach adapts ResearchFlow's
+`academic-defensive-editing` principles: remove repeated disclaimers, preserve
+consequential qualifications, and avoid strengthening claims. This is built into
+local templates and requires no additional Skill or model call.
 
 Report organization adapts the question/outline/evidence/consistency principles
 of academic-paper-strategist and academic-paper-composer to empirical ML.
