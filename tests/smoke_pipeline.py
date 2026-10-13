@@ -76,6 +76,11 @@ def exercise(root):
         doc = Document(out / "report.docx")
         assert len(doc.inline_shapes) >= 4 and doc.tables
         assert len(list((out / "figures").glob("*.svg"))) == len(doc.inline_shapes)
+        headings = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
+        assert any(h in ("各模型结果", "Results by Model") for h in headings)
+        assert "摘要" in headings or "Abstract" in headings
+        md = (out / "report.md").read_text(encoding="utf-8")
+        assert "附录 模型验证汇总" in md or "Appendix Model Validation Summary" in md
         for metric, value in summary["test_metrics"].items():
             if value is not None:
                 assert any(metric == row.cells[0].text and f"{value:.6g}" == row.cells[1].text

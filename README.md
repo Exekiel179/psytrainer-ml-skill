@@ -13,9 +13,9 @@ This Skill combines agent instructions with local Python tools for training,
 prediction, scientific figures, and Word reports. The Pipeline supports
 9 classification and 12 regression algorithms, with integrated validation,
 preprocessing and reporting.
-Reports explain the task, data splits, preprocessing and metrics for readers
-without machine-learning experience. Each diagnostic figure includes a reading
-guide, available measured findings and interpretation limits.
+Reports follow a technical abstract/methods/results/discussion layout. Each
+successfully trained model has its own results section; large runs also write
+per-model files under `reports/`. Appendix summary tables are comparative only.
 It also provides bounded grid/random search, forward/F-threshold selection,
 seven resampling methods, domain model presets and checked CV resume.
 
@@ -209,8 +209,8 @@ Run these commands from the installed Skill directory. Paths such as `data/`
 are placeholders for your own files; absolute paths work too. On Windows replace
 `.venv/bin/python` with `& .\.venv\Scripts\python.exe` in PowerShell.
 
-Use the fold-local Pipeline runner, which generates plots and a
-Word report automatically:
+Use the fold-local Pipeline runner (no PsyTrainer wheel required), which
+generates plots and a technical Word report automatically:
 
 ```bash
 .venv/bin/python scripts/pipeline_train.py train --features data/features.csv --labels data/labels.csv --task regression --target score --output-dir outputs/run-01

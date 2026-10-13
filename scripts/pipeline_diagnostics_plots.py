@@ -230,5 +230,9 @@ def diagnostic_plots(directory, summary, add):
             ax.set_ylim(len(block)-.5, -.5)
             ax.set_xlabel(block.metric.iloc[0])
             title(ax, "a", "Held-out performance by " + ("time block" if summary["split"] == "time" else "group"))
-            add(fig, f"strata-performance-{page+1}", (f"测试集{'时间块' if summary['split'] == 'time' else '组别'}表现（第 {page+1}/{pages} 页），各层点估计及样本量，无区间。时间块按唯一时间值连续分成最多 8 块，等时间值不拆分；边界与样本归属见源表。所有层均保留，组间差异不等同于因果效应。" if zh else
-                f"Held-out {summary['split']} performance (page {page+1}/{pages}): point estimates and support, no intervals. Time values are split into up to eight consecutive blocks, preserving ties; boundaries and membership in source. All strata retained; differences are not causal."), "strata-metrics.csv; strata-membership.csv")
+            partition_note = (("时间值连续分成最多 8 块，等时间值不拆分。" if zh else
+                               "Time values form up to eight consecutive blocks, preserving ties. ") if summary['split'] == 'time' else
+                              ("每层对应一个测试组别。" if zh else "Each stratum corresponds to one test group. "))
+            add(fig, f"strata-performance-{page+1}", ((f"测试集{'时间块' if summary['split'] == 'time' else '组别'}表现（第 {page+1}/{pages} 页），点为各层指标估计，括号内为样本量，未绘制区间。" if zh else
+                f"Held-out {summary['split']} performance (page {page+1}/{pages}): points are stratum estimates with sample counts in parentheses; no intervals are plotted. ") + partition_note +
+                ("所有层均保留，边界与样本归属见源表。" if zh else "All strata are retained; boundaries and membership are in source data.")), "strata-metrics.csv; strata-membership.csv")

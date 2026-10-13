@@ -11,6 +11,7 @@ import io
 import importlib.metadata
 import json
 import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -48,13 +49,17 @@ def capabilities(legacy=False):
                 "feature_filters": ["minmax", "kbest", "f-threshold", "forward", "pca"],
                 "resamplers": list(SAMPLERS), "domain_presets": DOMAIN_MODELS,
                 "resume": "--resume reuses CV folds with identical data/config/code/versions",
-                "legacy": "Historical INI only: explicitly supply --legacy --wheel /path/to/PsyTrainer.whl; use runtime-legacy.json python"}
+                "legacy": "Historical INI only: set PSYTRAINER_WHEEL or config/optional-wheel.path (or place one PsyTrainer-*.whl), rerun install_runtime.py, use runtime-legacy.json python; set PSYTRAINER_LEGACY=1 to query this catalog"}
     # Keep original INI capabilities separate from Pipeline scoring and preprocessing.
     with contextlib.redirect_stdout(io.StringIO()):
         try:
             from ccpl_training_models.model.model_factory import ModelFactory
         except ImportError as exc:
-            raise RuntimeError("Historical INI engine requires an external package: scripts/install_runtime.py --legacy --wheel /path/to/PsyTrainer.whl; new analyses use pipeline_train.py") from exc
+            raise RuntimeError(
+                "Historical INI engine requires an optional external PsyTrainer wheel "
+                "(PSYTRAINER_WHEEL or config/optional-wheel.path or one local PsyTrainer-*.whl), "
+                "then runtime-legacy.json python; new analyses use pipeline_train.py"
+            ) from exc
         from ccpl_training_models.feature.ff_factory import FFFactory
         from ccpl_training_models.sampler.sampler_factory import SamplerFactory
         from ccpl_training_models.util.scoring_utils import SCORINGS_CLASSIFIER, SCORINGS_DEFAULT
@@ -289,8 +294,8 @@ def execute(args):
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="operation", required=True)
-    cap = commands.add_parser("capabilities", help="List Pipeline algorithms and metrics")
-    cap.add_argument("--legacy", action="store_true", help="Query original INI engine instead")
+    commands.add_parser("capabilities", help="List Pipeline algorithms and metrics "
+                        "(set PSYTRAINER_LEGACY=1 to query the optional historical INI engine)")
     for name in ("inspect", "configure"):
         sub = commands.add_parser(name)
         sub.add_argument("--features", type=Path, required=True)
@@ -316,14 +321,19 @@ def parser():
     return result
 
 
+def legacy_requested() -> bool:
+    return (os.environ.get("PSYTRAINER_LEGACY") or "").strip().lower() in {"1", "true", "yes"}
+
+
 def main(argv=None):
     args = parser().parse_args(argv)
-    if __name__ == "__main__" and args.operation in {"inspect", "configure", "capabilities"} and not getattr(args, "legacy", False):
+    want_legacy = args.operation == "capabilities" and legacy_requested()
+    if __name__ == "__main__" and args.operation in {"inspect", "configure", "capabilities"} and not want_legacy:
         from runtime_dependencies import CORE, bootstrap
         bootstrap(__file__, CORE if args.operation == "capabilities" else ("numpy", "pandas"))
     try:
         if args.operation == "capabilities":
-            value, code = capabilities(legacy=args.legacy), 0
+            value, code = capabilities(legacy=want_legacy), 0
         elif args.operation == "inspect":
             value = inspect_data(args.features, args.labels, args.target, args.task, args.cv)
             code = 0 if value["ready"] else 2
