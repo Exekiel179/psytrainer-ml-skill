@@ -73,8 +73,9 @@ Default: `python scripts/install_runtime.py`, CPython 3.12-3.14, `.venv`,
 Neither source imports nor provenance collection requires PsyTrainer.
 
 Original INI compatibility is optional and never uses CLI wheel/legacy flags.
-Configure `PSYTRAINER_WHEEL`, `config/optional-wheel.path`, or place a single
-`PsyTrainer-*.whl` under the Skill root / `vendor/`, then run
+Agents should remind users they may load a local wheel, or skip it and use the
+Pipeline scripts. Configure `PSYTRAINER_WHEEL`, `config/optional-wheel.path`, or
+place a single `PsyTrainer-*.whl` under the Skill root / `vendor/`, then run
 `python scripts/install_runtime.py`. When a wheel is found, setup also creates
 matching CPython, `.venv-legacy`, and `runtime-legacy.json`. Without a wheel,
 Pipeline-only setup remains. Existing INI files and model directories still use

@@ -1,5 +1,10 @@
 # Agent Setup
 
+Before installing the runtime, remind the user of the two options: load a local
+PsyTrainer wheel if they have one, or proceed without a wheel and use this
+Skill’s Pipeline scripts (local code). Wheel is optional; never require
+`--legacy` / `--wheel` CLI flags. See [SKILL.md](../SKILL.md).
+
 Download `psytrainer-ml-skill.zip` from the repository's latest GitHub Release.
 Extract its complete `psytrainer-ml/` folder into the requested host directory:
 
@@ -22,9 +27,10 @@ the environment exists, not that optional packages are installed.
 
 ## Pipeline (default, no PsyTrainer wheel)
 
-New train / predict / report workflows use the local Pipeline and never require
-a PsyTrainer `.whl`. Offline dependency directories use `--wheelhouse PATH`
-(prebuilt packages only), which is separate from PsyTrainer.
+If the user does not load a wheel, use this path: `install_runtime.py` creates
+`.venv` / `runtime.json`, and agents run `scripts/pipeline_train.py` (the Skill’s
+own implementation—no vendor wheel). Offline dependency directories use
+`--wheelhouse PATH` (prebuilt packages only), which is separate from PsyTrainer.
 
 ```bash
 python3 scripts/install_runtime.py
