@@ -52,7 +52,6 @@ class BundleTests(unittest.TestCase):
             (root / "wheelhouse").mkdir()
             (root / "bundle.json").write_text(json.dumps({"profile": "pipeline", "python": [3, 12]}))
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
                  patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "RUNTIME_JSON", root / "runtime.json"), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]) as resolve, \

@@ -9,16 +9,16 @@ description: Train and compare tabular CSV classification/regression models, pre
 
 Tell the user (or decide with them) which path to use—do not silently assume:
 
-1. **Optional local wheel**: they may supply a PsyTrainer `.whl` via
-   `PSYTRAINER_WHEEL`, `config/optional-wheel.path`, or one file under the Skill
-   root / `vendor/`. Then run [setup](references/setup.md); historical INI jobs
-   use `runtime-legacy.json` -> `python`.
-2. **No wheel (default)**: skip wheel configuration. Run setup for the Pipeline
-   only, then use `scripts/pipeline_train.py` (this Skill’s local code path).
-   Do not invent CLI flags such as `--legacy` / `--wheel`.
+1. **Optional local wheel**: they may place a single `PsyTrainer-*.whl` under
+   `vendor/`. Then run [setup](references/setup.md); historical INI jobs use
+   `runtime-legacy.json` -> `python`.
+2. **No wheel (default)**: leave `vendor/` empty (or omit the wheel). Run setup
+   for the Pipeline only, then use `scripts/pipeline_train.py` (this Skill’s
+   local code path). Do not invent CLI flags such as `--legacy` / `--wheel`.
 
-Remind once at the start of a session or when installing the runtime; afterward
-follow the chosen path. Wheel remains optional—absence must not block Pipeline.
+Remind once at the start of a session or when installing the runtime that they
+can put a wheel in `vendor/`; otherwise Pipeline. Afterward follow the chosen
+path. Wheel remains optional—absence must not block Pipeline.
 
 Run from the Skill root with absolute data paths and a fresh output directory.
 Use `runtime.json` -> `python` as `$PY`; if absent, follow [setup](references/setup.md).
@@ -59,8 +59,8 @@ default. Scripts already write the technical report; no LLM rewrite is needed
 unless requested. Load only the relevant reference section:
 
 - [Setup](references/setup.md): remind wheel-or-Pipeline choice; optional wheel
-  via env/config/auto-discover (no CLI wheel/legacy flags); Pipeline is the
-  no-wheel path implemented by this Skill’s scripts.
+  is a single `vendor/PsyTrainer-*.whl` (no CLI wheel/legacy flags); Pipeline is
+  the no-wheel path implemented by this Skill’s scripts.
 - [Pipeline](references/pipeline.md): external tests, preprocessing, bounded search,
   resampling, model presets, resume, report layout and statistical limits.
   `ml.py capabilities` lists available algorithms/options.

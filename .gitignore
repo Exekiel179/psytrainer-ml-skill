@@ -9,7 +9,6 @@ venv/
 .env
 .env.*
 config/ml.ini
-config/optional-wheel.path
 runtime.json
 outputs/
 *.pkl

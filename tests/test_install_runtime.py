@@ -26,53 +26,37 @@ install_runtime = load_installer()
 
 
 class InstallRuntimeTests(unittest.TestCase):
-    def test_resolve_wheel_rejects_empty_path(self):
-        with self.assertRaisesRegex(SystemExit, "PSYTRAINER_WHEEL|optional-wheel"):
-            install_runtime.resolve_wheel(None)
-
     def test_optional_wheel_discovery_skips_when_absent(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
-                 patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("PSYTRAINER_WHEEL", None)
+            with patch.object(install_runtime, "ROOT", root):
                 self.assertIsNone(install_runtime.discover_optional_wheel())
-            wheel = root / "PsyTrainer-0.2.0-cp313-none-any.whl"
+            vendor = root / "vendor"
+            vendor.mkdir()
+            wheel = vendor / "PsyTrainer-0.2.0-cp313-none-any.whl"
             wheel.write_bytes(b"wheel")
-            with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
-                 patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("PSYTRAINER_WHEEL", None)
+            with patch.object(install_runtime, "ROOT", root):
                 self.assertEqual(install_runtime.discover_optional_wheel(), wheel.resolve())
-            (root / "PsyTrainer-0.1.0-cp313-none-any.whl").write_bytes(b"other")
-            with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
-                 patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("PSYTRAINER_WHEEL", None)
+            (vendor / "PsyTrainer-0.1.0-cp313-none-any.whl").write_bytes(b"other")
+            with patch.object(install_runtime, "ROOT", root):
                 self.assertIsNone(install_runtime.discover_optional_wheel())
 
-    def test_optional_wheel_config_file_is_discovered(self):
+    def test_optional_wheel_ignores_root_and_env(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            wheel = root / "external.whl"
-            wheel.write_bytes(b"wheel")
-            config = root / "config" / "optional-wheel.path"
-            config.parent.mkdir()
-            config.write_text(str(wheel) + "\n", encoding="utf-8")
+            (root / "PsyTrainer-0.2.0-cp313-none-any.whl").write_bytes(b"wheel")
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", config), \
-                 patch.dict(os.environ, {}, clear=False):
-                os.environ.pop("PSYTRAINER_WHEEL", None)
-                self.assertEqual(install_runtime.discover_optional_wheel(), wheel.resolve())
+                 patch.dict(os.environ, {"PSYTRAINER_WHEEL": str(root / "external.whl")}, clear=False):
+                self.assertIsNone(install_runtime.discover_optional_wheel())
 
     def test_setup_installs_legacy_when_optional_wheel_discovered(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            wheel = root / "PsyTrainer-0.2.0-cp313-none-any.whl"
+            vendor = root / "vendor"
+            vendor.mkdir()
+            wheel = vendor / "PsyTrainer-0.2.0-cp313-none-any.whl"
             wheel.write_bytes(b"wheel")
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
                  patch.object(install_runtime, "discover_optional_wheel", return_value=wheel), \
                  patch.object(install_runtime, "wheel_python", return_value=(3, 13)), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
@@ -107,7 +91,6 @@ class InstallRuntimeTests(unittest.TestCase):
             runtime = root / "runtime.json"
             runtime.write_text('{"ready": true}')
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
                  patch.object(install_runtime, "discover_optional_wheel", return_value=None):
                 with self.assertRaisesRegex(SystemExit, "no longer supported"):
                     install_runtime.main(["--allow-missing-psytrainer"])
@@ -119,7 +102,6 @@ class InstallRuntimeTests(unittest.TestCase):
             runtime = root / "runtime.json"
             py = Path(sys.executable)
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
                  patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "venv_python", return_value=py), \
                  patch.object(install_runtime, "python_version", return_value=(3, 12)), \
@@ -137,7 +119,6 @@ class InstallRuntimeTests(unittest.TestCase):
             runtime = root / "runtime.json"
             runtime.write_text('{"ready": true}')
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
                  patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "venv_python", return_value=Path(sys.executable)), \
                  patch.object(install_runtime, "python_version", return_value=(3, 12)), \
@@ -152,7 +133,6 @@ class InstallRuntimeTests(unittest.TestCase):
             root = Path(temp)
             runtime = root / "runtime.json"
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
                  patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
@@ -166,7 +146,6 @@ class InstallRuntimeTests(unittest.TestCase):
             root = Path(temp)
             runtime = root / "runtime.json"
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
                  patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
@@ -313,7 +292,6 @@ class InstallRuntimeTests(unittest.TestCase):
             runtime = root / "runtime.json"
             status = {"pandas": True, "numpy": True, "scipy": True, "joblib": True, "sklearn": True}
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
                  patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
@@ -331,9 +309,7 @@ class InstallRuntimeTests(unittest.TestCase):
             root = Path(temp)
             with patch.dict(os.environ, {"PSYTRAINER_WHEEL": "stale/external.whl"}), \
                  patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
                  patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
-                 patch.object(install_runtime, "resolve_wheel", side_effect=AssertionError("vendor required")), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
                  patch.object(install_runtime, "install_requirements") as install, \
@@ -355,10 +331,10 @@ class InstallRuntimeTests(unittest.TestCase):
             root = Path(temp)
             marker = root / "runtime.json"
             marker.write_text('{"ready": true}')
-            wheel = root / "external.whl"
+            wheel = root / "vendor" / "PsyTrainer-0.2.0-cp314-none-any.whl"
+            wheel.parent.mkdir()
             wheel.write_bytes(b"wheel")
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "OPTIONAL_WHEEL_CONFIG", root / "config" / "optional-wheel.path"), \
                  patch.object(install_runtime, "discover_optional_wheel", return_value=wheel), \
                  patch.object(install_runtime, "wheel_python", return_value=(3, 14)), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
@@ -375,29 +351,6 @@ class InstallRuntimeTests(unittest.TestCase):
             # Pipeline marker is rewritten by the first install pass.
             self.assertTrue((root / "runtime.json").is_file())
             self.assertEqual(json.loads((root / "runtime.json").read_text())["profile"], "pipeline")
-
-    def test_resolve_wheel_exact_path(self):
-        with tempfile.TemporaryDirectory() as temp:
-            wheel = Path(temp) / "PsyTrainer-0.2.0-cp313-none-any.whl"
-            wheel.write_bytes(b"wheel")
-            resolved = install_runtime.resolve_wheel(str(wheel))
-            self.assertEqual(resolved, wheel.resolve())
-
-    def test_resolve_wheel_glob_single_match(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            wheel = root / "PsyTrainer-0.2.0-cp313-none-any.whl"
-            wheel.write_bytes(b"wheel")
-            resolved = install_runtime.resolve_wheel(str(root / "PsyTrainer-*.whl"))
-            self.assertEqual(resolved, wheel.resolve())
-
-    def test_resolve_wheel_glob_ambiguous(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            (root / "PsyTrainer-0.1.0-cp313-none-any.whl").write_bytes(b"a")
-            (root / "PsyTrainer-0.2.0-cp313-none-any.whl").write_bytes(b"b")
-            with self.assertRaises(SystemExit):
-                install_runtime.resolve_wheel(str(root / "PsyTrainer-*.whl"))
 
     def test_venv_python_path_shape(self):
         name = install_runtime.venv_python().name

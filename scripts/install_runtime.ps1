@@ -1,8 +1,7 @@
 # Configure the local Python runtime and check dependencies on Windows.
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\install_runtime.ps1
-# Optional PsyTrainer wheel: set $env:PSYTRAINER_WHEEL, write config\optional-wheel.path,
-# or place a single PsyTrainer-*.whl under the Skill root / vendor\.
+# Optional PsyTrainer wheel: place a single PsyTrainer-*.whl under vendor\.
 
 param(
     [string]$Python = "",
