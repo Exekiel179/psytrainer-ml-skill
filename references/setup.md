@@ -1,9 +1,9 @@
 # Agent Setup
 
-Before installing the runtime, remind the user of the two options: load a local
-PsyTrainer wheel if they have one, or proceed without a wheel and use this
-Skill’s Pipeline scripts (local code). Wheel is optional; never require
-`--legacy` / `--wheel` CLI flags. See [SKILL.md](../SKILL.md).
+Before installing the runtime, remind the user of the two options: place a
+single `PsyTrainer-*.whl` under `vendor/` if they have one, or proceed without
+a wheel and use this Skill’s Pipeline scripts (local code). Wheel is optional;
+never require `--legacy` / `--wheel` CLI flags. See [SKILL.md](../SKILL.md).
 
 Download `psytrainer-ml-skill.zip` from the repository's latest GitHub Release.
 Extract its complete `psytrainer-ml/` folder into the requested host directory:
@@ -39,23 +39,20 @@ python3 scripts/install_runtime.py
 
 ## Optional PsyTrainer wheel (historical INI only)
 
-Do not pass CLI flags for wheel/legacy. Configure one optional source, then rerun
-the same setup command; when a wheel is found, setup also writes `.venv-legacy`
-and `runtime-legacy.json`. When none is found, setup stays Pipeline-only.
-
-| Option | How |
-|---|---|
-| Environment | `export PSYTRAINER_WHEEL=/path/to/PsyTrainer-0.2.0-cp314-none-any.whl` |
-| Config file | Copy `config/optional-wheel.path.example` to `config/optional-wheel.path` and put one path/glob on a non-comment line |
-| Auto-discover | Place a single `PsyTrainer-*.whl` under the Skill root or `vendor/` |
+Do not pass CLI flags for wheel/legacy. Place exactly one `PsyTrainer-*.whl`
+under `vendor/`, then rerun the same setup command; when that single wheel is
+found, setup also writes `.venv-legacy` and `runtime-legacy.json`. When none is
+found, setup stays Pipeline-only.
 
 ```bash
-export PSYTRAINER_WHEEL=/path/to/PsyTrainer-0.2.0-cp314-none-any.whl
+mkdir -p vendor
+# copy exactly one PsyTrainer-*.whl into vendor/
 python3 scripts/install_runtime.py
 # use runtime-legacy.json -> python for historical INI jobs
 ```
 
-Missing or ambiguous wheels are skipped. See [migration.md](migration.md).
+Missing wheels stay Pipeline-only. Multiple `vendor/PsyTrainer-*.whl` files are
+skipped with a clear message—keep exactly one. See [migration.md](migration.md).
 To list historical INI engine capabilities after that environment exists:
 `PSYTRAINER_LEGACY=1 "$PY_LEGACY" scripts/ml.py capabilities`.
 

@@ -126,6 +126,10 @@ with `ready: true` records that the environment exists, not that every package i
 installed. Every task invocation checks current dependency versions and imports.
 Satisfied dependencies require no network downloads.
 
+Default Pipeline setup does not need a PsyTrainer wheel. For historical INI
+compatibility only, place a single `PsyTrainer-*.whl` under `vendor/` and rerun
+setup (no CLI flags; see [setup](references/setup.md)).
+
 Default training installs core modeling, plotting and Word report libraries.
 LightGBM, XGBoost and CatBoost are installed only when selected; resampling adds
 imbalanced-learn. Prediction repairs dependencies required by the saved model.

@@ -8,14 +8,13 @@ Cross-platform (macOS / Linux / Windows):
   - Creates a local .venv under the skill root
   - Creates an environment without downloading task dependencies by default
   - Installs selected packages on demand, or all requirements with --all
-  - Optionally installs PsyTrainer in a separate .venv-legacy when a wheel is
-    discovered (PSYTRAINER_WHEEL, config/optional-wheel.path, or one local match)
+  - Optionally installs PsyTrainer in a separate .venv-legacy when a single
+    PsyTrainer-*.whl is placed under vendor/
   - Writes runtime.json so tasks check and repair their own dependencies
 
 Windows notes:
   - Optional wheel installs select the Python version declared by the wheel
   - venv interpreter is .venv\\Scripts\\python.exe
-  - Wheel globs are expanded in Python (cmd.exe does not expand *)
 """
 
 from __future__ import annotations
@@ -147,113 +146,34 @@ def ensure_venv(base_cmd: list[str], *, recreate: bool) -> Path:
     return py
 
 
-OPTIONAL_WHEEL_CONFIG = ROOT / "config" / "optional-wheel.path"
+def discover_optional_wheel() -> Path | None:
+    """Locate an optional PsyTrainer wheel under ``vendor/``; return None when absent.
 
-
-def resolve_wheel(spec: str | None) -> Path:
-    """Resolve a wheel path; expand globs in-process (needed on Windows cmd)."""
-    if not spec:
-        raise SystemExit(
-            "PsyTrainer wheel path is empty. Set PSYTRAINER_WHEEL, write "
-            "config/optional-wheel.path, or place a single PsyTrainer-*.whl "
-            "under the Skill root or vendor/. New analyses use Pipeline and "
-            "do not need a wheel.")
-    raw = spec.strip().strip('"').strip("'")
-    path = Path(raw).expanduser()
-    if path.is_file():
-        return path.resolve()
-
-    def collect(pattern: str) -> list[Path]:
-        found: list[Path] = []
-        candidate = Path(pattern).expanduser()
-        if candidate.is_file():
-            return [candidate.resolve()]
-        # Absolute or relative globs: glob only the final name under the parent.
-        parent = candidate.parent if str(candidate.parent) not in ("", ".") else Path.cwd()
-        name = candidate.name
-        try:
-            if parent.exists():
-                found.extend(parent.glob(name))
-        except OSError:
-            pass
-        try:
-            found.extend(ROOT.glob(name))
-        except OSError:
-            pass
-        if not candidate.is_absolute():
-            try:
-                found.extend(Path.cwd().glob(pattern))
-            except (OSError, NotImplementedError, ValueError):
-                pass
-        return found
-
+    Only a single ``vendor/PsyTrainer-*.whl`` enables the legacy environment.
+    Pipeline setup never requires a wheel; missing or multiple matches skip
+    quietly after a clear message.
+    """
+    vendor = ROOT / "vendor"
+    try:
+        found = list(vendor.glob("PsyTrainer-*.whl")) if vendor.is_dir() else []
+    except OSError:
+        found = []
     matches: list[Path] = []
-    for pattern in (raw, str(ROOT / raw)):
-        matches.extend(collect(pattern))
-
-    uniq: list[Path] = []
     seen: set[Path] = set()
-    for item in matches:
+    for item in found:
         try:
             resolved = item.resolve()
         except OSError:
             continue
         if resolved.is_file() and resolved not in seen:
             seen.add(resolved)
-            uniq.append(resolved)
-    if not uniq:
-        raise SystemExit(f"PsyTrainer wheel not found for pattern: {spec}")
-    if len(uniq) > 1:
-        listing = "\n".join(f"  - {item}" for item in uniq)
-        raise SystemExit(f"multiple wheels matched {spec!r}; set one path in "
-                         f"PSYTRAINER_WHEEL or {OPTIONAL_WHEEL_CONFIG.name}:\n{listing}")
-    return uniq[0]
-
-
-def discover_optional_wheel() -> Path | None:
-    """Locate an optional external PsyTrainer wheel; return None when absent.
-
-    Discovery order: ``PSYTRAINER_WHEEL``, ``config/optional-wheel.path``, then a
-    single ``PsyTrainer-*.whl`` under the Skill root or ``vendor/``. Pipeline
-    setup never requires a wheel; missing or ambiguous sources skip quietly.
-    """
-    candidates: list[tuple[str, str]] = []
-    env = (os.environ.get("PSYTRAINER_WHEEL") or "").strip()
-    if env:
-        candidates.append(("PSYTRAINER_WHEEL", env))
-    if OPTIONAL_WHEEL_CONFIG.is_file():
-        for line in OPTIONAL_WHEEL_CONFIG.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#"):
-                candidates.append((str(OPTIONAL_WHEEL_CONFIG), line))
-                break
-    for source, spec in candidates:
-        try:
-            return resolve_wheel(spec)
-        except SystemExit:
-            print(f"optional wheel from {source} not usable ({spec}); skipping", flush=True)
-            return None
-    matches: list[Path] = []
-    seen: set[Path] = set()
-    for pattern in ("PsyTrainer-*.whl", "vendor/PsyTrainer-*.whl"):
-        try:
-            found = list(ROOT.glob(pattern))
-        except OSError:
-            found = []
-        for item in found:
-            try:
-                resolved = item.resolve()
-            except OSError:
-                continue
-            if resolved.is_file() and resolved not in seen:
-                seen.add(resolved)
-                matches.append(resolved)
+            matches.append(resolved)
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
         listing = "\n".join(f"  - {item}" for item in matches)
-        print("multiple optional PsyTrainer wheels found; set PSYTRAINER_WHEEL or "
-              f"{OPTIONAL_WHEEL_CONFIG.relative_to(ROOT)} to one path:\n{listing}", flush=True)
+        print("multiple PsyTrainer-*.whl files under vendor/; keep exactly one "
+              f"to enable legacy setup:\n{listing}", flush=True)
     return None
 
 
@@ -427,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Configure the local Python runtime and check dependencies (Windows/macOS/Linux)",
         epilog="Place the Skill in your host's skill directory first. Setup checks dependencies without running sample training. "
-               "Optional PsyTrainer wheels are discovered via PSYTRAINER_WHEEL, config/optional-wheel.path, or a single local PsyTrainer-*.whl.",
+               "Optional PsyTrainer wheels: place a single PsyTrainer-*.whl under vendor/ (otherwise Pipeline only).",
     )
     parser.add_argument(
         "--python",
@@ -468,7 +388,8 @@ def main(argv: list[str] | None = None) -> int:
         return code
     wheel = discover_optional_wheel()
     if wheel is None:
-        print("optional PsyTrainer wheel not configured; Pipeline runtime only", flush=True)
+        print("no vendor/PsyTrainer-*.whl; Pipeline runtime only "
+              "(place one wheel under vendor/ for historical INI)", flush=True)
         return code
     print(f"optional wheel detected: {wheel}", flush=True)
     with runtime_location(True):

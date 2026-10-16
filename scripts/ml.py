@@ -49,15 +49,15 @@ def capabilities(legacy=False):
                 "feature_filters": ["minmax", "kbest", "f-threshold", "forward", "pca"],
                 "resamplers": list(SAMPLERS), "domain_presets": DOMAIN_MODELS,
                 "resume": "--resume reuses CV folds with identical data/config/code/versions",
-                "legacy": "Historical INI only: set PSYTRAINER_WHEEL or config/optional-wheel.path (or place one PsyTrainer-*.whl), rerun install_runtime.py, use runtime-legacy.json python; set PSYTRAINER_LEGACY=1 to query this catalog"}
+                "legacy": "Historical INI only: place one PsyTrainer-*.whl under vendor/, rerun install_runtime.py, use runtime-legacy.json python; set PSYTRAINER_LEGACY=1 to query this catalog"}
     # Keep original INI capabilities separate from Pipeline scoring and preprocessing.
     with contextlib.redirect_stdout(io.StringIO()):
         try:
             from ccpl_training_models.model.model_factory import ModelFactory
         except ImportError as exc:
             raise RuntimeError(
-                "Historical INI engine requires an optional external PsyTrainer wheel "
-                "(PSYTRAINER_WHEEL or config/optional-wheel.path or one local PsyTrainer-*.whl), "
+                "Historical INI engine requires an optional PsyTrainer wheel "
+                "(place one PsyTrainer-*.whl under vendor/), "
                 "then runtime-legacy.json python; new analyses use pipeline_train.py"
             ) from exc
         from ccpl_training_models.feature.ff_factory import FFFactory

@@ -1,8 +1,7 @@
 # Commands
 
-This reference describes the original INI engine. Configure an optional
-PsyTrainer wheel (`PSYTRAINER_WHEEL`, `config/optional-wheel.path`, or one local
-`PsyTrainer-*.whl`), run `scripts/install_runtime.py`, and use
+This reference describes the original INI engine. Place a single
+`PsyTrainer-*.whl` under `vendor/`, run `scripts/install_runtime.py`, and use
 `runtime-legacy.json` -> `python` as `$PY`. For the independent Pipeline use
 [pipeline.md](pipeline.md). `ml.py capabilities` lists Pipeline models;
 `PSYTRAINER_LEGACY=1 "$PY" scripts/ml.py capabilities` lists the original

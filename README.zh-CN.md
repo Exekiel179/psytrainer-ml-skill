@@ -102,9 +102,9 @@ Windows CMD 用户在 Skill 目录内执行 `scripts\install_runtime.cmd`。
 
 运行环境配置脚本默认只创建 `.venv` 并记录解释器路径，不下载模型依赖。`runtime.json` 的 `ready: true` 表示环境已创建；每次执行任务都会重新检查本次需要的依赖及版本，不以旧标记代替检查。
 
-默认 Pipeline 路径不需要 PsyTrainer wheel；历史 INI 兼容通过环境变量
-`PSYTRAINER_WHEEL`、`config/optional-wheel.path` 或本地唯一 `PsyTrainer-*.whl`
-可选启用（无 CLI 开关，详见 [setup](references/setup.md)）。
+默认 Pipeline 路径不需要 PsyTrainer wheel；历史 INI 兼容可将唯一的
+`PsyTrainer-*.whl` 放进 `vendor/` 后可选启用（无 CLI 开关，详见
+[setup](references/setup.md)）。
 默认训练只准备基础建模、绘图和 Word 报告依赖；选用 LightGBM、XGBoost、CatBoost 时才安装相应库，使用重采样时才安装 imbalanced-learn。预测按所加载模型补齐依赖，重新生成报告不安装无关模型库。已有包满足要求时不联网下载。主动预装某个包可用 `--packages xgboost`；只有明确需要完整预装或发布测试时才用 `--all`。
 
 macOS 如遇 LightGBM 的 OpenMP 动态库错误，需要安装系统库 `brew install libomp` 后重试。安装过程中会显示原始错误。
