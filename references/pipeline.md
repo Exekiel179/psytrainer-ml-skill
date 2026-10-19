@@ -169,14 +169,19 @@ reads JSON/CSVs rather than loading a pickle or retraining.
 
 Reports use an academic abstract/methods/results/discussion structure, with
 plain-language metric definitions in an appendix. Results retain measured values,
-baseline direction and supported intervals. Every successfully trained model has
-its own results subsection (validation folds, search configuration when present,
-and held-out metrics for the selected model only). When four or more models
-succeed, the overview report indexes dedicated `reports/<ModelTag>.md` and
-`.docx` files instead of inlining every section. A validation summary table is
-appendix-only and must not be the sole model presentation. General limitations
-are consolidated in the discussion; figure notes explain only their local
-statistical meaning. The editorial approach adapts ResearchFlow's
+baseline direction and supported intervals, plus short interpretive prose: why
+the selected model won on the primary validation metric (and fold stability when
+informative), what the test metric and baseline gap mean, and where claims stop
+(no invented significance or causality). Every successfully trained model has
+its own results subsection that positions it as selected / near selected /
+weaker / clearly weaker relative to the winner (validation folds, search
+configuration when present, and held-out metrics for the selected model only).
+When four or more models succeed, the overview report indexes dedicated
+`reports/<ModelTag>.md` and `.docx` files instead of inlining every section. A
+validation summary table is appendix-only and must not be the sole model
+presentation. Discussion opens with comparative judgment and evidence strength,
+then lists scope limits; figure notes explain only their local statistical
+meaning. The editorial approach adapts ResearchFlow's
 `academic-defensive-editing` principles: remove repeated disclaimers, preserve
 consequential qualifications, and avoid strengthening claims. This is built into
 local templates and requires no additional Skill or model call.

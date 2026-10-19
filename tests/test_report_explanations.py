@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from report_explanations import (FIGURES, figure_guide, metric_explanation, preprocessing,
                                  abstract, validation_methods, result_summary, discussion,
                                  uncertainty_description, model_result_paragraphs, model_name,
-                                 PER_MODEL_SPLIT_THRESHOLD)
+                                 model_role_short, selection_rationale, PER_MODEL_SPLIT_THRESHOLD)
 
 
 class ReportExplanationTests(unittest.TestCase):
@@ -93,11 +93,16 @@ class ReportExplanationTests(unittest.TestCase):
     def test_abstract_does_not_invent_primary_score(self):
         s = {'target': 'outcome', 'feature_n': 4, 'development_n': 96, 'test_n': 24,
              'cv_folds': 3, 'selected_model': 'ModelLRClassifier', 'metric': 'precision',
-             'split': 'group', 'external_test': True, 'test_metrics': {'precision_macro': None}}
+             'direction': 'higher', 'split': 'group', 'external_test': True,
+             'comparison': [{'model': 'ModelLRClassifier', 'mean': 0.7, 'sd': 0.05, 'folds': 3},
+                            {'model': 'ModelRandomForestClassifier', 'mean': 0.5, 'sd': 0.08, 'folds': 3}],
+             'test_metrics': {'precision_macro': None}}
         for zh in (True, False):
             text = abstract(s, zh)
             self.assertIn('未能计算' if zh else 'undefined', text)
             self.assertIn('外部' if zh else 'external', text)
+            self.assertIn('选定' if zh else 'Selection', text)
+            self.assertNotIn('显著', text)
 
     def test_f_threshold_includes_boundary_in_description(self):
         s = {'preprocessing': {'selection': 'f-threshold', 'f_threshold': 5}}
@@ -118,18 +123,50 @@ class ReportExplanationTests(unittest.TestCase):
             self.assertIn('常量' if zh else 'constant', result_summary(s, rows, zh))
 
     def test_each_successful_model_has_dedicated_prose(self):
-        summary = {'selected_model': 'ModelLRRegressor', 'metric': 'mae', 'test_n': 20,
-                   'test_metrics': {'mae': .25, 'mse': .1}}
+        summary = {
+            'selected_model': 'ModelLRRegressor', 'metric': 'mae', 'direction': 'lower',
+            'test_n': 20, 'split': 'random', 'external_test': False,
+            'test_metrics': {'mae': .25, 'mse': .1},
+            'comparison': [
+                {'model': 'ModelLRRegressor', 'mean': .3, 'sd': .05, 'folds': 3},
+                {'model': 'ModelRandomForestRegressor', 'mean': .4, 'sd': .1, 'folds': 3},
+                {'model': 'ModelKNeighborsRegressor', 'mean': .9, 'sd': .2, 'folds': 3},
+            ],
+        }
         selected = model_result_paragraphs(
             {'model': 'ModelLRRegressor', 'mean': .3, 'sd': .05, 'folds': 3},
             summary, [.2, .3, .4], {'fit_intercept': True}, True)
         self.assertTrue(any('最终选定' in line for line in selected))
         self.assertTrue(any('mae=0.25' in line for line in selected))
         self.assertTrue(any('fit_intercept' in line for line in selected))
-        other = model_result_paragraphs(
+        self.assertTrue(any('选定线性回归' in line or '按主指标' in line for line in selected))
+        near = model_result_paragraphs(
             {'model': 'ModelRandomForestRegressor', 'mean': .4, 'sd': .1, 'folds': 3},
             summary, [.35, .4, .45], None, True)
-        self.assertTrue(any('候选' in line for line in other))
-        self.assertFalse(any('mae=0.25' in line for line in other))
+        self.assertTrue(any('接近选定' in line or '弱于选定' in line for line in near))
+        self.assertTrue(any('相对选定' in line for line in near))
+        self.assertFalse(any('mae=0.25' in line for line in near))
+        weak = model_result_paragraphs(
+            {'model': 'ModelKNeighborsRegressor', 'mean': .9, 'sd': .2, 'folds': 3},
+            summary, [.8, .9, 1.0], None, True)
+        self.assertTrue(any('明显更差' in line for line in weak))
+        self.assertEqual(model_role_short(summary['comparison'][0], summary, True), '选定')
+        self.assertEqual(model_role_short(summary['comparison'][2], summary, True), '明显更差')
+        rationale = selection_rationale(summary, True)
+        self.assertTrue('相对差距' in rationale or '改善约' in rationale)
+        notes = ' '.join(discussion(summary, {'interval': {'units': 6}}, True))
+        self.assertIn('按主指标', notes)
+        self.assertIn('证据强度', notes)
+        self.assertNotIn('显著优于', notes)
         self.assertIn('随机森林', model_name('ModelRandomForestRegressor', True))
         self.assertGreaterEqual(PER_MODEL_SPLIT_THRESHOLD, 4)
+
+    def test_result_summary_explains_metric_meaning(self):
+        summary = {'metric': 'mae', 'direction': 'lower'}
+        row = {'metric': 'mae', 'estimate': .3, 'baseline': .5, 'gain': .2,
+               'lower': .1, 'upper': .6, 'gain_lower': .05, 'gain_upper': .4}
+        text = result_summary(summary, [row], True)
+        self.assertIn('平均绝对误差', text)
+        self.assertIn('可观测改善', text)
+        self.assertIn('不能外推', text)
+        self.assertNotIn('显著', text)

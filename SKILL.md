@@ -36,10 +36,11 @@ see setup for mirrors/offline repair. Never skip dependencies or claim success.
 CSV first column: unique sample ID; feature/label IDs must match. Predictors are
 numeric; targets cannot be missing. Ask only about ambiguous task/target.
 Defaults: 20% holdout, 5-fold CV, two models, Chinese technical Word report
-(abstract / methods / results / discussion). Each successful model gets its own
-results section; with many models, also write `reports/<Model>.md` (+ `.docx`)
-indexed by the overview report. Appendix tables summarize; they are not the only
-model presentation.
+(abstract / methods / results / discussion). Reports include comparative judgment
+and interpretive prose (selection rationale, baseline meaning, per-model standing),
+not metric tables alone. Each successful model gets its own results section; with
+many models, also write `reports/<Model>.md` (+ `.docx`) indexed by the overview
+report. Appendix tables summarize; they are not the only model presentation.
 Use `--task classification` for classes; honor chosen models/metrics. Add a known
 research question with `--question`.
 For repeated subjects/sites use `--split group --metadata meta.csv --group-column subject`;

@@ -192,7 +192,7 @@ def generate_report(directory):
     from docx.shared import Inches, Pt, RGBColor
     from report_explanations import (introduction, preprocessing, metric_explanation, figure_guide,
                                      abstract, validation_methods, result_summary, discussion, model_name,
-                                     uncertainty_description, model_result_paragraphs,
+                                     uncertainty_description, model_result_paragraphs, model_role_short,
                                      PER_MODEL_SPLIT_THRESHOLD)
 
     directory = Path(directory)
@@ -325,8 +325,7 @@ def generate_report(directory):
         for row in s["comparison"]:
             tag = row["model"]
             name = model_name(tag, zh)
-            selected = tag == s["selected_model"]
-            role = ("选定" if selected else "候选") if zh else ("selected" if selected else "candidate")
+            role = model_role_short(row, s, zh)
             body = model_folder_body(row)
             model_md = [
                 f"# {name}\n",
@@ -417,8 +416,7 @@ def generate_report(directory):
         cell.text = text
     md.append("| " + " | ".join(summary_headers) + " |\n|---|---|---|---|---|\n")
     for row in s["comparison"]:
-        role = (("选定" if row["model"] == s["selected_model"] else "候选") if zh else
-                ("selected" if row["model"] == s["selected_model"] else "candidate"))
+        role = model_role_short(row, s, zh)
         values = [model_name(row["model"], zh), str(row["folds"]), f"{row['mean']:.4g}",
                   f"{row['sd']:.4g}", role]
         for cell, text in zip(table.add_row().cells, values):
