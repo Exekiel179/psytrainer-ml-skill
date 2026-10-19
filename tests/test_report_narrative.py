@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from report_facts import standing, validate_context
-from report_narrative import Narrator, fmt, interval, tidy
+from report_narrative import Narrator, fmt, interval, stat, tidy
 
 
 def summary(**overrides):
@@ -42,13 +42,14 @@ class NarrativeTests(unittest.TestCase):
     def test_conclusion_answers_question_by_evidence(self):
         n = Narrator(summary(), facts(), True)
         self.assertEqual(n.verdict(), "supported")
-        self.assertIn("有效信息", n.conclusion())
+        self.assertIn("预测能力", n.conclusion())
+        self.assertIn("MAE = 0.16, 95% CI [0.11, 0.21]", n.conclusion())
         crossing = dict(facts()["primary"], gain_lower=-.2)
         self.assertEqual(Narrator(summary(), facts(primary=crossing), True).verdict(), "uncertain")
-        self.assertIn("包含零", Narrator(summary(), facts(primary=crossing), True).conclusion())
+        self.assertIn("包含 0", Narrator(summary(), facts(primary=crossing), True).conclusion())
         worse = dict(facts()["primary"], gain=-.1, gain_lower=-.3, gain_upper=.05)
         text = Narrator(summary(), facts(primary=worse), False).conclusion()
-        self.assertIn("do not support", text)
+        self.assertIn("did not outperform the baseline", text)
         no_ci = dict(facts()["primary"], gain_lower=None, gain_upper=None)
         self.assertEqual(Narrator(summary(), facts(primary=no_ci), True).verdict(), "supported_point")
 
@@ -59,16 +60,22 @@ class NarrativeTests(unittest.TestCase):
             self.assertNotIn(label, text)
         self.assertIn("信号能否预测分数？", text)
 
-    def test_relative_margin_uses_runner_up_as_denominator(self):
+    def test_model_comparison_reports_cv_mean_and_sd(self):
         text = Narrator(summary(), facts(), True).model_comparison_sentence()
-        self.assertIn("误差低 55%", text)
-        self.assertIn("2.5 个折间标准差", text)
-        self.assertNotIn("124", text)
+        self.assertIn("3 折交叉验证", text)
+        self.assertIn("M = 0.17, SD = 0.03", text)
+        self.assertIn("M = 0.38, SD = 0.11", text)
+        self.assertNotIn("折间", text)
 
-    def test_baseline_clause_reports_relative_reduction_and_interval(self):
-        text = Narrator(summary(), facts(), False).baseline_comparison()
-        self.assertIn("90% lower than the baseline", text)
-        self.assertIn("[0.98, 2.09]", text)
+    def test_baseline_is_named_and_improvement_reported_apa_style(self):
+        n = Narrator(summary(), facts(), False)
+        self.assertIn("MAE = 0.16, 95% CI [0.11, 0.21]; baseline MAE = 1.71", n.baseline_comparison())
+        self.assertIn("90% lower (difference = 1.55, 95% CI [0.98, 2.09])", n.improvement_clause())
+        self.assertIn("training-set median", n.baseline_full())
+        zh = Narrator(summary(), facts(), True)
+        self.assertIn("DummyRegressor", zh.baseline_full())
+        for term in ("开发集", "配对", "正向重要性"):
+            self.assertNotIn(term, zh.conclusion() + zh.baseline_comparison() + zh.improvement_clause())
 
     def test_data_flags_only_when_triggered(self):
         quiet = Narrator(summary(), facts(shift={"missing": [], "mean_shift": [], "out_of_range": []}), True)
@@ -85,6 +92,8 @@ class NarrativeTests(unittest.TestCase):
                               "leaders": ["signal"], "leader_share": .8, "negligible": []})
         n = Narrator(summary(), f, True)
         self.assertIn("信号（signal）", n.leaders_text())
+        self.assertIn("ΔMAE = 2.00, SD = 0.10", n.predictor_sentence())
+        self.assertNotIn("%", n.predictor_sentence())
         self.assertIn("分数", n.conclusion())
         self.assertIn("75%", n.secondary_test_clause())
         self.assertNotIn("可接受误差", n.limitations_paragraph())
@@ -108,9 +117,14 @@ class FormattingTests(unittest.TestCase):
     def test_numbers_and_intervals(self):
         self.assertEqual(fmt(1.967e-15), "0")
         self.assertEqual(fmt(1234.5), "1,234")
-        self.assertEqual(fmt(.123456), "0.123")
-        self.assertEqual(interval(-.117, .15), "[-0.117, 0.15]")
+        self.assertEqual(fmt(.123456), "0.12")
+        self.assertEqual(fmt(.0031), "0.0031")
+        self.assertEqual(interval(-.117, .15), "[-0.12, 0.15]")
         self.assertIsNone(interval(None, 1))
+
+    def test_apa_statistic(self):
+        self.assertEqual(stat("MAE", .163, .108, .209), "MAE = 0.16, 95% CI [0.11, 0.21]")
+        self.assertEqual(stat("R²", .989), "R² = 0.99")
 
     def test_cjk_latin_spacing(self):
         self.assertEqual(tidy("线性回归 优于K 近邻，测试集MAE为0.16。 下一句", True),

@@ -10,8 +10,8 @@ METRICS = {
             "Mean squared error", "Average squared error, giving large mistakes extra weight. Lower is better; units are squared outcome units, not the original scale."),
     "rmse": ("均方根误差 RMSE", "对均方误差开平方，将结果还原为目标单位；越小越好。它比 MAE 更容易被少量大错误拉高。",
              "Root mean squared error", "Square root of MSE, returning to outcome units. Lower is better; a few large mistakes affect it more than MAE."),
-    "r2": ("决定系数 R²", "比较模型误差与始终预测测试集平均值时的误差。1 表示完全吻合，0 表示在此标准下没有改善，负值表示更差；它不是预测正确率，也不是因果解释比例。这里的均值参照与图中只在开发集拟合的简单基线不同。",
-           "R squared", "Compares squared errors with predicting the test outcome mean. One is perfect, zero gives no improvement under that reference, and negative is worse. It is not accuracy or causal explanation. This reference differs from the plotted baseline fitted only on development data."),
+    "r2": ("决定系数 R²", "比较模型误差与始终预测测试集平均值时的误差。1 表示完全吻合，0 表示在此标准下没有改善，负值表示更差；它不是预测正确率，也不是因果解释比例。这里的均值参照与图中只在训练集拟合的简单基线不同。",
+           "R squared", "Compares squared errors with predicting the test outcome mean. One is perfect, zero gives no improvement under that reference, and negative is worse. It is not accuracy or causal explanation. This reference differs from the plotted baseline fitted only on training data."),
     "pearson_r": ("Pearson 相关系数", "衡量真实值与预测值是否一起升降，范围为 -1 到 1，越接近 1 表示正向线性一致性越强。即使相关很高，预测仍可能整体偏高或偏低，所以需同时看 MAE 和误差图。常量序列时无法计算。",
                   "Pearson correlation", "Measures linear co-movement from -1 to 1. A value near 1 can coexist with systematic over- or underprediction; also inspect absolute errors. Undefined for a constant series."),
     "accuracy": ("准确率", "所有测试样本中预测类别正确的比例；越高越好。某类别占绝大多数时，只猜该类别也能获得高准确率，因此必须同时看各类召回率。",
@@ -84,19 +84,19 @@ PER_MODEL_SPLIT_THRESHOLD = 4
 
 def validation_methods(s, zh):
     designs = {
-        'random': ('开发集内部采用分层随机交叉验证。' if s['task'] == 'classification' else '开发集内部采用随机 K 折交叉验证。',
+        'random': ('训练集内部采用分层随机交叉验证。' if s['task'] == 'classification' else '训练集内部采用随机 K 折交叉验证。',
                    'Development cross-validation was stratified by class.' if s['task'] == 'classification' else 'Development data used shuffled K-fold cross-validation.'),
-        'group': ('开发集与测试集的组别互不重叠，开发集内部采用 GroupKFold，验证折同样按组隔离。组标识仅用于划分，不作为预测特征。',
-                  'Development and test groups are disjoint. GroupKFold also separates groups within development data; group identifiers are used only for splitting.'),
+        'group': ('训练集与测试集的组别互不重叠，训练集内部采用 GroupKFold，验证折同样按组隔离。组标识仅用于划分，不作为预测特征。',
+                  'Development and test groups are disjoint. GroupKFold also separates groups within training data; group identifiers are used only for splitting.'),
         'time': (f"样本按唯一时间值划分为有序块，采用前向交叉验证；训练记录早于验证记录，同一时间值不跨越划分边界。训练末端排除 {s['gap']} 个时间块作为间隔。",
                  f"Forward cross-validation uses ordered unique time blocks. Training precedes validation, equal timestamps remain together, and a gap of {s['gap']} blocks excludes the end of each training partition."),
     }
     source = ('另行提供的外部数据' if s['external_test'] else '模型选择前从输入数据划出的内部留出集') if zh else (
         'separately supplied external data' if s['external_test'] else 'an internal holdout reserved before model selection')
     lines = [f"测试集来源为{source}。" if zh else f"The test set comprises {source}.", designs[s['split']][0 if zh else 1]]
-    lines.append((f"开发集的 {s['cv_folds']} 折验证用于比较候选模型，每折在训练部分拟合模型，在未参与该折拟合的记录上计算验证指标。"
-                  "选定配置后，在完整开发集重新拟合，再评价测试集。" if zh else
-                  f"The {s['cv_folds']} development folds compare candidates by fitting on each training partition and scoring records excluded from that fit. The selected configuration is refitted on all development records before test evaluation."))
+    lines.append((f"训练集的 {s['cv_folds']} 折验证用于比较候选模型，每折在训练折拟合模型，在未参与该折拟合的记录上计算验证指标。"
+                  "选定配置后，在完整训练集重新拟合，再评价测试集。" if zh else
+                  f"The {s['cv_folds']} training folds compare candidates by fitting on each training partition and scoring records excluded from that fit. The selected configuration is refitted on all training records before test evaluation."))
     lines.append(f"随机过程使用种子 {s['seed']}。" if zh else f"Stochastic operations use seed {s['seed']}.")
     return lines
 
@@ -131,7 +131,7 @@ def preprocessing(s, zh):
     def add(cn, en):
         lines.append(cn if zh else en)
     if p.get('impute') == 'median':
-        add("缺失预测变量以训练样本中对应特征的中位数填补，使不完整记录能够进入后续分析。填充值仅从训练部分估计。", "Missing predictors are replaced by the corresponding training-feature median, allowing incomplete records to enter the analysis. Replacement values are estimated from training data only.")
+        add("缺失预测变量以训练样本中对应特征的中位数填补，使不完整记录能够进入后续分析。填充值仅从训练折估计。", "Missing predictors are replaced by the corresponding training-feature median, allowing incomplete records to enter the analysis. Replacement values are estimated from training data only.")
     else:
         add("本次未进行缺失值填补，分析要求预测变量完整。", "No imputation is applied; complete predictors are required.")
     if p.get('scale'):
@@ -141,7 +141,7 @@ def preprocessing(s, zh):
         add("本次不进行数值缩放，特征保留原始尺度。", "Features retain their original scales; no scaling is applied.")
     selection = p.get('selection')
     if selection == 'forward':
-        add(f"逐步前向筛选从较少特征开始，利用训练部分的内部验证逐项尝试加入信息。本次选择数量设置为 {p.get('select_k') or '自动'}；它只寻找当前搜索路径上的改善，不保证找到了所有可能组合中的最优解。", f"Forward selection adds features using validation within training data; requested count is {p.get('select_k') or 'automatic'}. This searches one path, not every possible subset.")
+        add(f"逐步前向筛选从较少特征开始，利用训练折的内部验证逐项尝试加入信息。本次选择数量设置为 {p.get('select_k') or '自动'}；它只寻找当前搜索路径上的改善，不保证找到了所有可能组合中的最优解。", f"Forward selection adds features using validation within training data; requested count is {p.get('select_k') or 'automatic'}. This searches one path, not every possible subset.")
     elif selection == 'f-threshold':
         add(f"特征筛选保留 F 统计量不低于 {p.get('f_threshold')} 的输入。该分数评价单个预测变量与结局的关联，可能遗漏仅在变量组合中体现的信息。", f"F-threshold selection retains inputs at or above {p.get('f_threshold')}. It assesses individual associations and can miss interactions.")
     elif p.get('select_k'):
@@ -151,8 +151,8 @@ def preprocessing(s, zh):
     if p.get('pca'):
         add(f"主成分分析（PCA）将处理后的特征压缩为 {p['pca']} 个综合成分。各成分是原特征的加权组合，以保留输入变异为目标；这一降维准则与最大化结局预测能力并不相同。", f"Principal component analysis (PCA) compresses processed inputs into {p['pca']} weighted components. It preserves input variation, an objective distinct from maximizing outcome prediction.")
     if p.get('resample', 'none') != 'none':
-        add(f"训练时采用 {p['resample']} 调整类别样本构成，以改变不同类别对模型拟合的贡献。重采样仅作用于训练部分，验证与测试保持原始样本构成。", f"Training uses {p['resample']} to alter class representation and its contribution to model fitting. Resampling is confined to training partitions; validation and test retain their original composition.")
-    add("上述处理构成统一的 Pipeline：每折仅用训练部分估计预处理参数，并将其应用于该折验证数据。最终在完整开发集拟合的预处理与模型一并保存，用于测试和后续预测。", "These steps form one Pipeline. Preprocessing parameters are estimated within each training fold and applied to its validation data. The final development-fitted preprocessing and estimator are saved together for test evaluation and subsequent predictions.")
+        add(f"训练时采用 {p['resample']} 调整类别样本构成，以改变不同类别对模型拟合的贡献。重采样仅作用于训练折，验证与测试保持原始样本构成。", f"Training uses {p['resample']} to alter class representation and its contribution to model fitting. Resampling is confined to training partitions; validation and test retain their original composition.")
+    add("上述处理构成统一的 Pipeline：每折仅用训练折估计预处理参数，并将其应用于该折验证数据。最终在完整训练集拟合的预处理与模型一并保存，用于测试和后续预测。", "These steps form one Pipeline. Preprocessing parameters are estimated within each training fold and applied to its validation data. The final training-fitted preprocessing and estimator are saved together for test evaluation and subsequent predictions.")
     return lines
 
 
@@ -160,17 +160,17 @@ def preprocessing(s, zh):
 FIGURES = {
     'model-validation': (
         '候选模型的训练与交叉验证表现',
-        'a 面板每行是一种模型，横轴是所选指标；灰点是训练得分，蓝点是同一折的验证得分，连线连接一对结果。先按横轴的 higher/lower 判断好坏，再比较灰蓝差距。b 面板把验证表现减去同折简单基线的表现，并统一成正值更好；绿点是平均增益，线段是折间标准差，表示不同划分下的波动。',
-        '折间标准差描述划分间的波动，区别于均值估计的置信区间。',
+        'a 面板每行是一种模型，横轴是所选指标；灰点是训练得分，蓝点是同一折的验证得分，连线连接一对结果。先按横轴的 higher/lower 判断好坏，再比较灰蓝差距。b 面板把验证表现减去同折简单基线的表现，并统一成正值更好；绿点是平均增益，线段是交叉验证标准差，表示不同划分下的波动。',
+        '交叉验证标准差描述划分间的波动，区别于均值估计的置信区间。',
         'Training and cross-validation performance',
-        'In panel a, each row is a model; gray and blue dots are paired training and validation scores. Check the higher/lower direction before comparing gaps. Panel b shows validation gain over the same-fold dummy baseline, oriented positive-is-better. Green marks show mean and between-fold SD.',
+        'In panel a, each row is a model; gray and blue dots are paired training and validation scores. Check the higher/lower direction before comparing gaps. Panel b shows validation gain over the same-fold dummy baseline, oriented positive-is-better. Green marks show mean and cross-validation SD.',
         'Between-fold SD describes split variability rather than confidence in an estimated mean.'),
     'test-performance': (
         '测试集性能及基线比较',
-        '横轴是主要评价指标，纵轴分为最终模型和简单基线两行。蓝点表示模型，灰点表示仅在开发集学习简单规则的基线；根据指标方向判断哪个更好。如果出现蓝色横线，它表示固定模型下重复抽取测试样本得到的 95% 区间，不是单个预测的误差范围。',
-        '图中基线为点估计；配对差值区间见结果表及源数据。区间的抽样单位和计算条件见方法 1.5 节。',
+        '横轴是主要评价指标，纵轴分为最终模型和简单基线两行。蓝点表示模型，灰点表示仅在训练集学习简单规则的基线；根据指标方向判断哪个更好。如果出现蓝色横线，它表示固定模型下重复抽取测试样本得到的 95% 区间，不是单个预测的误差范围。',
+        '图中基线为点估计；相对基线的差值区间见结果表及源数据。区间的抽样单位和计算条件见方法 1.5 节。',
         'Test performance and baseline comparison',
-        'The horizontal axis is the primary metric. Blue is the selected model; gray is the development-fitted dummy baseline. Read the metric direction. A blue interval, when shown, summarizes resampled test performance conditional on this fitted model, not individual prediction error.',
+        'The horizontal axis is the primary metric. Blue is the selected model; gray is the dummy baseline. Read the metric direction. A blue interval, when shown, summarizes resampled test performance conditional on this fitted model, not individual prediction error.',
         'The baseline is a point estimate; paired-difference intervals are retained in the results and source data. Resampling units and conditions are given in Methods 1.5.'),
     'regression-diagnostics': (
         '预测一致性与残差分布',
@@ -216,17 +216,17 @@ FIGURES = {
         'Repeat SD describes variation across permutations. Correlated inputs can substitute, making single-column permutations understate reliance on their shared information.'),
     'feature-correlation': (
         '预测变量的相关结构',
-        '横纵轴都是特征编号，对应名称见图注。每个方格表示开发样本中两个特征的 Spearman 排序相关，范围 -1 到 1：接近 1 表示经常一起升高，接近 -1 表示一个高时另一个常低，接近零表示单调关联较弱。对角线是特征与自身，不用于寻找额外信息。',
-        '该矩阵描述开发集中的单调关联。低秩相关仍可能伴随非单调关系，常量变量的相关系数无法定义。',
+        '横纵轴都是特征编号，对应名称见图注。每个方格表示训练集样本中两个特征的 Spearman 排序相关，范围 -1 到 1：接近 1 表示经常一起升高，接近 -1 表示一个高时另一个常低，接近零表示单调关联较弱。对角线是特征与自身，不用于寻找额外信息。',
+        '该矩阵描述训练集中的单调关联。低秩相关仍可能伴随非单调关系，常量变量的相关系数无法定义。',
         'Correlation structure of predictors',
-        'Both axes are feature keys mapped in the caption. Cells show development Spearman rank correlations from -1 to 1: positive means rising together, negative opposing ranks, near zero weak monotonic association. Diagonal self-correlations add no new evidence.',
-        'The matrix describes monotonic associations in development data. Low rank correlation can coexist with nonmonotonic dependence; correlations of constant variables are undefined.'),
+        'Both axes are feature keys mapped in the caption. Cells show training Spearman rank correlations from -1 to 1: positive means rising together, negative opposing ranks, near zero weak monotonic association. Diagonal self-correlations add no new evidence.',
+        'The matrix describes monotonic associations in training data. Low rank correlation can coexist with nonmonotonic dependence; correlations of constant variables are undefined.'),
     'feature-shift': (
-        '开发集与测试集的特征分布差异',
-        '左图每点是一项特征，横轴是测试均值减开发均值，再除以开发集标准差；零表示均值相同，正值表示测试均值更高，绝对值表示差异相当于多少个开发集标准差。右图灰蓝点分别是开发和测试缺失比例，0.2 就是两成记录缺失。这里只展示位移靠前的特征，完整结果在源表。',
+        '训练集与测试集的特征分布差异',
+        '左图每点是一项特征，横轴是测试均值减训练集均值，再除以训练集标准差；零表示均值相同，正值表示测试均值更高，绝对值表示差异相当于多少个训练集标准差。右图灰蓝点分别是训练和测试缺失比例，0.2 就是两成记录缺失。这里只展示位移靠前的特征，完整结果在源表。',
         '均值接近不代表整个分布一致，均值不同也不自动证明模型失效。应结合采集方式、样本来源和误差分布调查；常量或全缺失输入的标准化差异无法定义。',
-        'Feature distributions in development and test data',
-        'Left: test-minus-development mean divided by development SD; zero is equal means, positive is a higher test mean. Right: development and test missing fractions; 0.2 means 20% missing. Displayed features have the largest defined mean shifts; the source table is complete.',
+        'Feature distributions in training and test data',
+        'Left: test-minus-development mean divided by training SD; zero is equal means, positive is a higher test mean. Right: training and test missing fractions; 0.2 means 20% missing. Displayed features have the largest defined mean shifts; the source table is complete.',
         'Equal means do not imply equal distributions, and shifted means do not prove model failure. Investigate collection and error patterns. Constant or all-missing inputs have undefined standardized shifts.'),
     'strata-performance': (
         '分组或时间分层的测试集表现',
@@ -237,10 +237,10 @@ FIGURES = {
         'These are point estimates without intervals. Differences can reflect support, prevalence or task difficulty, not necessarily unfairness or temporal decline.'),
     'parameter-search': (
         '参数配置与交叉验证表现',
-        '横轴的候选编号对应一组模型或预处理设置，纵轴是开发集交叉验证平均分。不同候选用相同划分比较，按指标的高低方向判断。编号只是标签，不是参数大小；精确设置见源表，标题同时记录失败数量。',
+        '横轴的候选编号对应一组模型或预处理设置，纵轴是训练集交叉验证平均分。不同候选用相同划分比较，按指标的高低方向判断。编号只是标签，不是参数大小；精确设置见源表，标题同时记录失败数量。',
         '候选编号仅用于定位配置，横轴距离不表示参数差异的大小；模型选择依据同一验证设计下的平均得分。',
         'Parameter configurations and cross-validation performance',
-        'Candidate indices identify model or preprocessing configurations; vertical values are mean development CV scores on shared splits. Follow the metric direction. Indices are labels, not parameter magnitudes; exact settings and failures are in source data.',
+        'Candidate indices identify model or preprocessing configurations; vertical values are mean training CV scores on shared splits. Follow the metric direction. Indices are labels, not parameter magnitudes; exact settings and failures are in source data.',
         'Candidate indices identify configurations; horizontal distances do not quantify parameter differences. Selection uses mean scores under the shared validation design.'),
 }
 

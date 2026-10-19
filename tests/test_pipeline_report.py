@@ -89,8 +89,12 @@ class PipelineReportTests(unittest.TestCase):
                             "## 3 讨论", "附录 A 各候选模型的详细结果"):
                 self.assertIn(section, text)
             self.assertIn("**结论**", text)
-            self.assertIn("有效信息", text)
-            self.assertIn("### 线性回归（选定）", text)
+            self.assertIn("预测能力", text)
+            self.assertIn("DummyRegressor", text)
+            self.assertIn("训练集", text)
+            for term in ("开发集", "配对改善", "正向置换重要性"):
+                self.assertNotIn(term, text)
+            self.assertIn("### 线性回归（最终模型）", text)
             self.assertIn("### 随机森林回归器", text)
             for label in ("主张：", "证据：", "阐释：", "lightgbm None"):
                 self.assertNotIn(label, text)
@@ -122,7 +126,7 @@ class PipelineReportTests(unittest.TestCase):
                 text = (root / "report.md").read_text(encoding="utf-8")
                 self.assertIn("Depression score", text)
                 self.assertIn("## Abstract", text)
-                self.assertIn("within the prespecified tolerance", text)
+                self.assertIn("had absolute error ≤ 0.30 points", text)
                 self.assertTrue((root / "report-context.json").is_file())
                 pipeline_report.generate_report(root)  # saved context persists
             self.assertIn("Depression score", (root / "report.md").read_text(encoding="utf-8"))
@@ -151,7 +155,7 @@ class PipelineReportTests(unittest.TestCase):
             self.assertIn("单独成文", overview)
             detail = (reports / "ModelRandomForestRegressor.md").read_text(encoding="utf-8")
             self.assertIn("逐折结果", detail)
-            self.assertIn("折间标准差", detail)
+            self.assertIn("交叉验证", detail)
 
 
 if __name__ == "__main__":

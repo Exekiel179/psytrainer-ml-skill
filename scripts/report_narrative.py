@@ -30,15 +30,15 @@ FAMILY_NAMES = {
     "other": ("其他", "other"),
 }
 STANDING = {
-    "selected": ("选定", "selected"), "sole": ("选定（唯一）", "selected (only)"),
-    "near": ("与选定接近", "close to selected"), "weaker": ("较弱", "weaker"),
+    "selected": ("最终模型", "final model"), "sole": ("最终模型（唯一）", "final model (only)"),
+    "near": ("与最终模型相当", "comparable to final"), "weaker": ("较弱", "weaker"),
     "clearly_weaker": ("明显较弱", "clearly weaker"), "unranked": ("未排序", "unranked"),
 }
 BASELINES = {
-    "mean": ("始终预测开发集结局均值", "always predicts the development outcome mean"),
-    "median": ("始终预测开发集结局中位数", "always predicts the development outcome median"),
-    "prior": ("按开发集类别比例给出概率、预测最多见类别", "uses development class frequencies and predicts the most frequent class"),
-    "most_frequent": ("始终预测开发集最多见类别", "always predicts the most frequent development class"),
+    "mean": ("始终预测训练集目标变量均值", "always predicts the training outcome mean"),
+    "median": ("始终预测训练集目标变量中位数", "always predicts the training outcome median"),
+    "prior": ("按训练集类别比例给出概率、预测最多见类别", "uses training class frequencies and predicts the most frequent class"),
+    "most_frequent": ("始终预测训练集最多见类别", "always predicts the most frequent training class"),
 }
 
 
@@ -52,10 +52,9 @@ def fmt(value, digits=3):
         return "0"
     if abs(value) >= 1000:
         return f"{value:,.0f}"
-    text = f"{value:.{digits}g}"
-    if "e" in text:
-        text = f"{value:.2g}"
-    return text
+    if abs(value) >= 0.01:
+        return f"{value:.2f}"
+    return f"{value:.2g}"
 
 
 def pct(value):
@@ -95,6 +94,13 @@ def tidy(text, zh):
     text = re.sub(r" (?=[，。；：、）！？”])", "", text)
     text = re.sub(r"(?<=[（“。；：，、）]) ", "", text)
     return text.strip()
+
+
+def stat(label, value, lo=None, hi=None):
+    """APA-style 'MAE = 0.16, 95% CI [0.11, 0.21]'."""
+    text = f"{label} = {fmt(value)}"
+    ci = interval(lo, hi)
+    return text + (f", 95% CI {ci}" if ci else "")
 
 
 def interval(lo, hi):
@@ -144,6 +150,27 @@ class Narrator:
     def mlabel(self, key=None):
         return metric_label(key or self.metric, self.zh)
 
+    def baseline_rule(self):
+        strategy = (self.s.get("baseline") or {}).get("strategy")
+        rules = {
+            "median": ("对每个样本都预测训练集目标变量的中位数", "always predicts the training-set median of the outcome"),
+            "mean": ("对每个样本都预测训练集目标变量的均值", "always predicts the training-set mean of the outcome"),
+            "prior": ("对每个样本都预测训练集中最多的类别", "always predicts the most frequent training-set class"),
+            "most_frequent": ("对每个样本都预测训练集中最多的类别", "always predicts the most frequent training-set class"),
+        }
+        rule = rules.get(strategy, ("只使用训练集目标变量分布、不使用任何特征", "uses only the training outcome distribution, no features"))
+        return rule[0 if self.zh else 1]
+
+    def baseline_full(self):
+        kind = "DummyRegressor" if self.s["task"] == "regression" else "DummyClassifier"
+        return self.t(f"基线模型（{kind}，{self.baseline_rule()}）", f"the baseline ({kind}, which {self.baseline_rule()})")
+
+    def importance_phrase(self):
+        """What a permutation-importance value means for the primary metric."""
+        if self.metric in LOSSES:
+            return self.t(f"打乱该特征后测试集{self.mlabel()}的平均上升", f"mean increase in test {self.mlabel()} when the feature is shuffled")
+        return self.t(f"打乱该特征后测试集{self.mlabel()}的平均下降", f"mean drop in test {self.mlabel()} when the feature is shuffled")
+
     def better(self):
         return self.t("越低越好", "lower is better") if self.s["direction"] == "lower" else self.t("越高越好", "higher is better")
 
@@ -166,39 +193,33 @@ class Narrator:
         if not leaders:
             return ""
         names = join([self.feature(x) for x in leaders], self.zh)
-        share = imp.get("leader_share")
-        if len(leaders) == 1:
-            return self.t(f"预测主要依赖{names}", f"predictions relied mainly on {names}")
-        return self.t(f"预测主要依赖{names}（合计约占正向置换重要性的 {pct(share)}）",
-                      f"predictions relied mainly on {names} (about {pct(share)} of positive permutation importance)")
+        return self.t(f"最重要的预测特征为{names}", f"the most important predictors were {names}")
+
+    def primary_stat(self, key=None):
+        row = self.f["tests"].get(key or self.metric) or (self.f["primary"] if key is None else {})
+        return stat(self.mlabel(key), row.get("estimate"), row.get("lower"), row.get("upper"))
 
     def baseline_comparison(self, subject=None):
-        """'MAE 0.163 vs 1.71 for the baseline (90% lower)' style clause."""
+        """'MAE = 0.16, 95% CI [0.11, 0.21]; baseline MAE = 1.71' style clause."""
         p = self.f["primary"]
-        est, base = p.get("estimate"), p.get("baseline")
-        subject = self.t("测试集", "test ") if subject is None else subject
-        if est is None:
-            return self.t(f"{subject}{self.mlabel()}未能计算", f"{subject}{self.mlabel()} was undefined")
-        ci = interval(p.get("lower"), p.get("upper"))
-        text = self.t(f"{subject}{self.mlabel()}为 {fmt(est)}{self.unit}", (f"{subject}{self.mlabel()} was {fmt(est)}{self.unit}" if subject else f"{self.mlabel()} of {fmt(est)}{self.unit}"))
-        if ci:
-            text += f"（95% CI {ci}）" if self.zh else f" (95% CI {ci})"
-        if base is not None:
-            rel = p.get("relative")
-            if rel is not None and rel > 0:
-                text += self.t(f"，比基线（{fmt(base)}）低 {pct(rel)}", f", {pct(rel)} lower than the baseline ({fmt(base)})")
-            elif rel is not None and rel < 0:
-                text += self.t(f"，高于基线（{fmt(base)}）", f", higher than the baseline ({fmt(base)})")
-            else:
-                gain = p.get("gain")
-                direction = (self.t("高于", "above") if (gain or 0) > 0 else self.t("低于", "below") if (gain or 0) < 0
-                             else self.t("等于", "equal to"))
-                text += self.t(f"，{direction}基线（{fmt(base)}）", f", {direction} the baseline ({fmt(base)})")
-            gci = interval(p.get("gain_lower"), p.get("gain_upper"))
-            if gci:
-                text += self.t(f"；配对改善 {fmt(p.get('gain'))}（95% CI {gci}）",
-                               f"; paired improvement {fmt(p.get('gain'))} (95% CI {gci})")
+        if p.get("estimate") is None:
+            return self.t(f"测试集{self.mlabel()}无法计算", f"test {self.mlabel()} was undefined")
+        text = self.primary_stat()
+        if p.get("baseline") is not None:
+            text += self.t(f"；基线模型的{self.mlabel()} = {fmt(p['baseline'])}", f"; baseline {self.mlabel()} = {fmt(p['baseline'])}")
         return text
+
+    def improvement_clause(self):
+        p = self.f["primary"]
+        if p.get("gain") is None:
+            return ""
+        diff = stat(self.t("差值", "difference"), p["gain"], p.get("gain_lower"), p.get("gain_upper"))
+        rel = p.get("relative")
+        if self.metric in LOSSES and rel is not None:
+            return self.t(f"与基线模型相比，{self.mlabel()}降低了 {pct(rel)}（{diff}）", f"Compared with the baseline, {self.mlabel()} was {pct(rel)} lower ({diff})")
+        ci = interval(p.get("gain_lower"), p.get("gain_upper"))
+        tail = f", 95% CI {ci}" if ci else ""
+        return self.t(f"与基线模型相比，{self.mlabel()}高出 {fmt(p['gain'])}{tail}", f"Compared with the baseline, {self.mlabel()} was {fmt(p['gain'])} higher{tail}")
 
     def secondary_test_clause(self):
         tests = self.f["tests"]
@@ -206,44 +227,56 @@ class Narrator:
         if self.s["task"] == "regression":
             r2 = tests.get("r2", {})
             if r2.get("estimate") is not None and self.metric != "r2":
-                ci = interval(r2.get("lower"), r2.get("upper"))
-                bits.append(f"R² = {fmt(r2['estimate'])}" + (f"（95% CI {ci}）" if ci and self.zh else f" (95% CI {ci})" if ci else ""))
+                bits.append(stat("R²", r2["estimate"], r2.get("lower"), r2.get("upper")))
             reg = self.f.get("regression") or {}
             if reg.get("within_tolerance") is not None:
-                bits.append(self.t(f"{pct(reg['within_tolerance'])} 的测试记录误差不超过预设容许值 {fmt(reg['tolerance'])}{self.unit}",
-                                   f"{pct(reg['within_tolerance'])} of test records were within the prespecified tolerance of {fmt(reg['tolerance'])}{self.unit}"))
+                bits.append(self.t(f"绝对误差 ≤ {fmt(reg['tolerance'])}{self.unit}的测试样本占 {pct(reg['within_tolerance'])}",
+                                   f"{pct(reg['within_tolerance'])} of test samples had absolute error ≤ {fmt(reg['tolerance'])}{self.unit}"))
         else:
             for key in ("roc_auc", "balanced_accuracy", "accuracy"):
                 row = tests.get(key, {})
                 if key != self.metric and row.get("estimate") is not None:
-                    ci = interval(row.get("lower"), row.get("upper"))
-                    bits.append(f"{self.mlabel(key)} = {fmt(row['estimate'])}" + (f"（95% CI {ci}）" if ci and self.zh else f" (95% CI {ci})" if ci else ""))
+                    bits.append(stat(self.mlabel(key), row["estimate"], row.get("lower"), row.get("upper")))
                     if len(bits) == 2:
                         break
         return self.t("；".join(bits), "; ".join(bits))
+
+    def difference_ci(self):
+        p = self.f["primary"]
+        return interval(p.get("gain_lower"), p.get("gain_upper"))
+
+    def variance_clause(self):
+        r2 = self.f["tests"].get("r2", {}).get("estimate")
+        if self.s["task"] != "regression" or r2 is None or r2 <= 0:
+            return ""
+        return self.t(f"，可解释测试集中{self.target}约 {pct(r2)} 的变异", f", explaining about {pct(r2)} of the variance in {self.target}")
 
     def conclusion(self, leaders=True):
         v = self.verdict()
         target = self.target
         name = self.model(self.s["selected_model"])
+        p = self.f["primary"]
+        metric = self.mlabel()
+        base = fmt(p.get("baseline"))
+        diff = self.difference_ci()
         lead = self.leaders_text()
         if v == "supported":
-            text = self.t(f"在本数据中，现有特征包含预测{target}的有效信息：{name}在测试集上优于不使用特征的基线，且配对改善的 95% 区间位于零以上",
-                          f"In these data the features carry usable information about {target}: {name} outperformed the feature-free baseline on the test set, with a paired improvement interval above zero")
+            text = self.t(f"{name}对{target}具有较好的预测能力：测试集{self.primary_stat()}{self.variance_clause()}，优于基线模型（{metric} = {base}），且差值的 95% CI {diff} 不包含 0",
+                          f"{name} predicted {target} on the held-out test set ({self.primary_stat()}){self.variance_clause()}, outperforming the baseline ({metric} = {base}); the 95% CI of the difference {diff} excluded 0")
         elif v == "supported_point":
-            text = self.t(f"在本数据中，{name}在测试集上优于不使用特征的基线，提示现有特征包含预测{target}的信息；本次未提供区间，优势的抽样不确定性尚未量化",
-                          f"{name} outperformed the feature-free baseline on the test set, suggesting the features carry information about {target}; this design gives no interval, so sampling uncertainty of the advantage is unquantified")
+            text = self.t(f"{name}在测试集上优于基线模型（{metric} = {fmt(p.get('estimate'))} vs. {base}），提示特征对{target}具有一定预测能力；本次未计算置信区间",
+                          f"{name} outperformed the baseline on the test set ({metric} = {fmt(p.get('estimate'))} vs. {base}), suggesting some predictive ability for {target}; no confidence interval was computed")
         elif v == "uncertain":
-            text = self.t(f"{name}的测试集点估计优于基线，但配对差值区间包含零，现有测试样本不足以确认特征对预测{target}带来可靠增益",
-                          f"{name} beat the baseline on point estimate, but the paired interval includes zero; the test sample cannot confirm a reliable gain for predicting {target}")
+            text = self.t(f"{name}在测试集上的{metric}（{fmt(p.get('estimate'))}）略优于基线模型（{base}），但差值的 95% CI {diff} 包含 0，尚不能认为模型对{target}具有稳定的预测能力",
+                          f"{name} was slightly better than the baseline on test {metric} ({fmt(p.get('estimate'))} vs. {base}), but the 95% CI of the difference {diff} included 0, so reliable predictive ability for {target} was not established")
         elif v == "not_supported":
-            text = self.t(f"{name}在测试集上未优于不使用特征的基线；就本数据和本流程而言，结果不支持现有特征能够预测{target}",
-                          f"{name} did not outperform the feature-free baseline on the test set; within these data and this pipeline, the results do not support that the features predict {target}")
+            text = self.t(f"{name}在测试集上未优于基线模型（{metric} = {fmt(p.get('estimate'))} vs. {base}），现有特征对{target}没有表现出预测能力",
+                          f"{name} did not outperform the baseline on the test set ({metric} = {fmt(p.get('estimate'))} vs. {base}); the features showed no predictive ability for {target}")
         else:
-            text = self.t(f"测试集主要指标或基线无法计算，无法判断现有特征能否预测{target}",
-                          f"The primary test metric or baseline was undefined, so whether the features predict {target} cannot be judged")
+            text = self.t(f"测试集主要指标或基线无法计算，无法评估模型对{target}的预测能力",
+                          f"The primary test metric or baseline was undefined, so predictive ability for {target} cannot be assessed")
         if leaders and lead and v in ("supported", "supported_point"):
-            text += self.t(f"，{lead}", f"; {lead}")
+            text += self.t(f"；{lead}", f"; {lead}")
         return text + self.t("。", ".")
 
     # ------------------------------------------------------------ abstract
@@ -257,17 +290,19 @@ class Narrator:
         objective = question or self.t(f"评估现有特征能否预测{self.target}，并比较候选模型。",
                                        f"To assess whether the available features predict {self.target} and to compare candidate models.")
         method = self.t(
-            f"{s['development_n']} 条开发记录、{s['test_n']} 条{source}记录，{s['feature_n']} 项特征。"
-            f"在开发集内以 {s['cv_folds']} 折{design}交叉验证比较 {len(f['comparison'])} 个模型（{names}），"
-            f"按{self.mlabel()}（{self.better()}）选择最终模型，再在测试集上与不使用特征的基线比较。",
-            f"{s['development_n']} development and {s['test_n']} {source} records with {s['feature_n']} features. "
+            f"训练集 {s['development_n']} 条、{source} {s['test_n']} 条，{s['feature_n']} 个特征。"
+            f"在训练集上以 {s['cv_folds']} 折{design}交叉验证比较 {len(f['comparison'])} 个模型（{names}），"
+            f"按{self.mlabel()}（{self.better()}）选择最终模型，再在测试集上与{self.baseline_full()}比较。",
+            f"{s['development_n']} training and {s['test_n']} {source} samples with {s['feature_n']} features. "
             f"{len(f['comparison'])} models ({names}) were compared by {s['cv_folds']}-fold {design} cross-validation on "
-            f"{self.mlabel()} ({self.better()}); the selected model was then compared with a feature-free baseline on the test set.")
+            f"{self.mlabel()} ({self.better()}); the selected model was then compared on the test set with {self.baseline_full()}.")
         sel = f.get("selected") or {}
-        result = self.t(f"{self.model(s['selected_model'])}被选定（验证{self.mlabel()} {fmt(sel.get('mean'))} ± {fmt(sel.get('sd'))}）。",
-                        f"{self.model(s['selected_model'])} was selected (validation {self.mlabel()} {fmt(sel.get('mean'))} ± {fmt(sel.get('sd'))}). ")
-        clause = self.baseline_comparison()
-        result += (clause if self.zh else clause[:1].upper() + clause[1:]) + self.t("。", ". ")
+        result = self.t(f"{self.model(s['selected_model'])}的交叉验证表现最好（{self.mlabel()}: M = {fmt(sel.get('mean'))}, SD = {fmt(sel.get('sd'))}），被选为最终模型。",
+                        f"{self.model(s['selected_model'])} performed best in cross-validation ({self.mlabel()}: M = {fmt(sel.get('mean'))}, SD = {fmt(sel.get('sd'))}) and was selected. ")
+        result += self.t(f"在测试集上，{self.baseline_comparison()}。", f"On the test set, {self.baseline_comparison()}. ")
+        improvement = self.improvement_clause()
+        if improvement:
+            result += improvement + self.t("。", ". ")
         secondary = self.secondary_test_clause()
         if secondary:
             result += secondary + self.t("。", ". ")
@@ -311,8 +346,8 @@ class Narrator:
             return ""
         others = sorted([r for r in rows if r is not sel], key=lambda r: r.get("margin") or 0)
         runner = others[0]
-        text = self.t(f"在 {len(rows)} 个候选中，{self.model(sel['model'])}的验证{self.mlabel()}最好（{fmt(sel['mean'])}）；",
-                      f"Among {len(rows)} candidates, {self.model(sel['model'])} had the best validation {self.mlabel()} ({fmt(sel['mean'])}); ")
+        text = self.t(f"{self.s['cv_folds']} 折交叉验证结果显示，在 {len(rows)} 个候选模型中，{self.model(sel['model'])}表现最好（{self.mlabel()}: M = {fmt(sel['mean'])}, SD = {fmt(sel.get('sd'))}）；",
+                      f"In {self.s['cv_folds']}-fold cross-validation, {self.model(sel['model'])} performed best among {len(rows)} candidates ({self.mlabel()}: M = {fmt(sel['mean'])}, SD = {fmt(sel.get('sd'))}); ")
         text += self.margin_clause(runner)
         short = self.family_reading(short=True) if reading else ""
         if short:
@@ -321,17 +356,10 @@ class Narrator:
 
     def margin_clause(self, row):
         name = self.model(row["model"])
-        rel, ratio = row.get("relative_margin"), row.get("margin_sd")
-        text = self.t(f"次优的{name}为 {fmt(row['mean'])}", f"the runner-up {name} had {fmt(row['mean'])}")
-        details = []
-        if rel is not None and rel > 0:
-            details.append(self.t(f"选定模型误差低 {pct(rel)}", f"{pct(rel)} lower error for the selected model"))
-        if ratio is not None:
-            details.append(self.t(f"差距约为 {fmt(ratio, 2)} 个折间标准差", f"a gap of about {fmt(ratio, 2)} between-fold SDs"))
-        if details:
-            text += self.t("（" + "，".join(details) + "）", " (" + "; ".join(details) + ")")
+        text = self.t(f"其次为{name}（M = {fmt(row['mean'])}, SD = {fmt(row.get('sd'))}）",
+                      f"the runner-up was {name} (M = {fmt(row['mean'])}, SD = {fmt(row.get('sd'))})")
         if row["standing"] == "near":
-            text += self.t("，两者差距在折间波动范围内", ", within between-fold variation")
+            text += self.t("，两者差距小于交叉验证标准差，可视为表现相当", "; the gap is smaller than the cross-validation SD, so they perform comparably")
         return text
 
     def family_reading(self, short=False):
@@ -350,9 +378,9 @@ class Narrator:
                 return self.t("线性与非线性模型表现接近，更灵活的模型没有带来明显收益",
                               "Linear and non-linear models performed similarly; extra flexibility brought no clear gain")
             if short:
-                return self.t("线性模型优于各非线性模型，提示结局与特征的关系可由线性结构较好近似",
+                return self.t("线性模型优于各非线性模型，提示目标变量与特征的关系可由线性结构较好近似",
                               "The linear model outperformed all non-linear models, suggesting an approximately linear relationship")
-            return self.t("线性模型优于各非线性模型，提示在当前样本量下，结局与特征的关系可以由加性线性结构较好地近似，"
+            return self.t("线性模型优于各非线性模型，提示在当前样本量下，目标变量与特征的关系可以由加性线性结构较好地近似，"
                           "更灵活的模型没有从额外复杂度中获益（也可能是样本量不足以支撑其更高的方差）。这是对模型比较的解读，并非对数据生成机制的检验。",
                           "The linear model outperformed all non-linear models, suggesting that at this sample size an additive linear "
                           "structure approximates the relationship well and flexible models did not benefit from extra complexity "
@@ -364,7 +392,7 @@ class Narrator:
         if short:
             return self.t(f"{self.family(sel['family'])}优于线性模型，提示可能存在非线性关系或交互作用",
                           f"The {self.family(sel['family'])} model beat the linear model, suggesting non-linearity or interactions")
-        return self.t(f"{self.family(sel['family'])}（{self.model(sel['model'])}）优于线性模型，提示特征与结局之间可能存在非线性关系或交互作用；"
+        return self.t(f"{self.family(sel['family'])}（{self.model(sel['model'])}）优于线性模型，提示特征与目标变量之间可能存在非线性关系或交互作用；"
                       "置换重要性只反映依赖程度，不能指明这种关系的具体形式。",
                       f"A {self.family(sel['family'])} model ({self.model(sel['model'])}) beat the linear model, suggesting non-linear relationships or "
                       "interactions; permutation importance shows reliance, not the form of these relationships.")
@@ -376,30 +404,32 @@ class Narrator:
             return ""
         top = [r for r in ranked if r["mean"] > 0 and r["share"] >= 0.05][:3] or [r for r in ranked if r["mean"] > 0][:1]
         if not top:
-            return self.t("置换任何单个特征都未使测试表现平均下降，模型可能依赖相互替代的特征组合，或未从特征中获得稳定信息。",
-                          "Permuting any single feature did not reduce test performance on average; the model may use substitutable features or carry little stable signal.")
-        parts = [self.t(f"{self.feature(r['feature'])}（{fmt(r['mean'])}）", f"{self.feature(r['feature'])} ({fmt(r['mean'])})") for r in top]
-        text = self.t(f"置换重要性最高的特征依次为{join(parts, True)}", f"The highest permutation importance was for {join(parts, False)}")
-        lead_share = ranked[0].get("share")
-        if lead_share and lead_share >= 0.5 and len(ranked) > 1:
-            text += self.t(f"；{self.feature(ranked[0]['feature'])}单独约占正向重要性的 {pct(lead_share)}",
-                           f"; {self.feature(ranked[0]['feature'])} alone accounted for about {pct(lead_share)} of positive importance")
+            return self.t("打乱任何单个特征都没有使测试表现变差，模型可能依赖可相互替代的特征，或未从特征中学到稳定信息。",
+                          "Shuffling any single feature did not worsen test performance; the model may rely on interchangeable features or have learned little stable signal.")
+        delta = f"Δ{self.mlabel()}"
+        parts = [f"{self.feature(r['feature'])}（{delta} = {fmt(r['mean'])}, SD = {fmt(r['sd'])}）" if self.zh else
+                 f"{self.feature(r['feature'])} ({delta} = {fmt(r['mean'])}, SD = {fmt(r['sd'])})" for r in top]
+        if len(parts) == 1:
+            text = self.t(f"置换重要性分析表明，{parts[0]}是最重要的预测特征", f"Permutation importance showed that {parts[0]} was the most important predictor")
+        else:
+            text = self.t(f"置换重要性分析表明，{parts[0]}是最重要的预测特征，其次为{'、'.join(parts[1:])}",
+                          f"Permutation importance showed that {parts[0]} was the most important predictor, followed by {join(parts[1:], False)}")
         unstable = [r for r in top if not r["stable"]]
         if unstable and len(unstable) == len(top):
-            text += self.t("。这些估计的重复间波动较大（均值不足两倍重复间标准差），特征之间的排序并不稳定",
-                           ". These estimates varied considerably across permutations (mean below two repeat SDs), so the ranking is not stable")
+            text += self.t("。这些值的标准差与均值相当，特征排序不稳定",
+                           ". Their SDs are comparable to the means, so the ranking is not stable")
         elif unstable:
-            text += self.t(f"。其中{join([self.feature(r['feature']) for r in unstable], True)}的重复间波动较大，其排序不稳定",
-                           f". Estimates for {join([self.feature(r['feature']) for r in unstable], False)} varied considerably across permutations")
+            text += self.t(f"。其中{join([self.feature(r['feature']) for r in unstable], True)}的标准差较大，排序不稳定",
+                           f". {join([self.feature(r['feature']) for r in unstable], False)} had large SDs, so their ranking is not stable")
         negligible = imp.get("negligible") or []
         if negligible:
-            text += self.t(f"。{join([self.feature(x) for x in negligible], True)}被置换后测试表现几乎不变（平均下降为非正值，或不足正向重要性的 2% 且小于两倍重复间标准差），模型对其几乎没有依赖",
-                           f". Permuting {join([self.feature(x) for x in negligible], False)} left test performance essentially unchanged (non-positive mean decrease, or under 2% of positive importance and within two repeat SDs), so the model barely relied on them")
+            text += self.t(f"。{join([self.feature(x) for x in negligible], True)}的置换重要性接近 0，模型基本不依赖{'该特征' if len(negligible) == 1 else '这些特征'}",
+                           f". {join([self.feature(x) for x in negligible], False)} had permutation importance near 0, so the model barely used {'it' if len(negligible) == 1 else 'them'}")
         pairs = imp.get("correlated_pairs") or []
         if pairs and not short:
             pair = pairs[0]
-            text += self.t(f"。{self.feature(pair['a'])}与{self.feature(pair['b'])}高度相关（Spearman ρ = {fmt(pair['rho'], 2)}），二者的单列重要性可能相互掩盖",
-                           f". {self.feature(pair['a'])} and {self.feature(pair['b'])} were strongly correlated (Spearman ρ = {fmt(pair['rho'], 2)}), so their single-column importances may mask each other")
+            text += self.t(f"。{self.feature(pair['a'])}与{self.feature(pair['b'])}高度相关（Spearman ρ = {fmt(pair['rho'], 2)}），二者可相互替代，单独打乱其中一个会低估它们的共同作用",
+                           f". {self.feature(pair['a'])} and {self.feature(pair['b'])} were highly correlated (Spearman ρ = {fmt(pair['rho'], 2)}); shuffling either alone understates their joint contribution")
         return text + self.t("。", ".")
 
     def error_sentence(self, short=False):
@@ -407,23 +437,23 @@ class Narrator:
             reg = self.f.get("regression") or {}
             if not reg:
                 return ""
-            text = self.t(f"测试集绝对误差中位数为 {fmt(reg['median_ae'])}{self.unit}，90% 的记录误差不超过 {fmt(reg['p90_ae'])}{self.unit}，最大为 {fmt(reg['max_ae'])}{self.unit}",
-                          f"Median absolute test error was {fmt(reg['median_ae'])}{self.unit}; 90% of records were within {fmt(reg['p90_ae'])}{self.unit}, maximum {fmt(reg['max_ae'])}{self.unit}")
+            text = self.t(f"测试集绝对误差的中位数为 {fmt(reg['median_ae'])}{self.unit}，第 90 百分位数为 {fmt(reg['p90_ae'])}{self.unit}，最大值为 {fmt(reg['max_ae'])}{self.unit}",
+                          f"The median absolute test error was {fmt(reg['median_ae'])}{self.unit} (90th percentile {fmt(reg['p90_ae'])}{self.unit}, maximum {fmt(reg['max_ae'])}{self.unit})")
             sd = reg.get("target_sd_test")
             if sd:
-                text += self.t(f"（测试集结局标准差为 {fmt(sd)}）", f" (test outcome SD {fmt(sd)})")
+                text += self.t(f"（作为参照，测试集目标变量 SD = {fmt(sd)}）", f"; for reference, the test-set SD of {self.target} was {fmt(sd)}")
             bias = self.f["tests"].get("bias", {})
             lo, hi = bias.get("lower"), bias.get("upper")
             if lo is not None and hi is not None and (lo > 0 or hi < 0):
-                text += self.t(f"。平均残差为 {fmt(bias['estimate'])}（95% CI {interval(lo, hi)}），模型整体{'低估' if lo > 0 else '高估'}",
-                               f". Mean residual was {fmt(bias['estimate'])} (95% CI {interval(lo, hi)}), indicating overall {'under' if lo > 0 else 'over'}prediction")
+                text += self.t(f"。平均残差（实际值 − 预测值）= {fmt(bias['estimate'])}, 95% CI {interval(lo, hi)}，表明模型整体{'低估' if lo > 0 else '高估'}",
+                               f". The mean residual (observed − predicted) was {fmt(bias['estimate'])}, 95% CI {interval(lo, hi)}, indicating systematic {'under' if lo > 0 else 'over'}prediction")
             edge = reg.get("edge_bias")
             worst = reg.get("worst_bin")
             if not short and edge and worst and worst["n"] >= 10 and reg.get("best_bin_mae") and worst["mae"] > 1.5 * reg["best_bin_mae"]:
                 text += self.t(f"。误差在预测值 {worst['range']} 区间最大（MAE {fmt(worst['mae'])}，n = {worst['n']}）",
                                f". Error was largest for predictions in {worst['range']} (MAE {fmt(worst['mae'])}, n = {worst['n']})")
             if not short and edge and edge["low"] < 0 < edge["high"] and min(abs(edge["low"]), abs(edge["high"])) > 0.5 * (reg["median_ae"] or 0):
-                text += self.t("；最低一组预测平均偏高、最高一组平均偏低，预测向均值收缩，极端结局可能被低估",
+                text += self.t("；最低一组预测平均偏高、最高一组平均偏低，预测向均值收缩，极端值可能被低估",
                                "; the lowest predictions were too high and the highest too low on average, i.e. predictions shrink toward the mean and extremes may be underestimated")
             return text + self.t("。", ".")
         cls = self.f.get("classification") or {}
@@ -458,19 +488,19 @@ class Narrator:
         shift = self.f.get("shift") or {}
         flags = []
         for item in (shift.get("missing") or [])[:2]:
-            flags.append(self.t(f"{self.feature(item['feature'])}在测试集中的缺失率（{pct(item['test'])}）与开发集（{pct(item['development'])}）明显不同，测试表现可能部分反映缺失值填补的影响。",
-                                f"{self.feature(item['feature'])} was missing in {pct(item['test'])} of test records versus {pct(item['development'])} in development, so test results partly reflect imputation."))
+            flags.append(self.t(f"{self.feature(item['feature'])}在测试集中的缺失率（{pct(item['test'])}）与训练集（{pct(item['development'])}）明显不同，测试表现可能部分反映缺失值填补的影响。",
+                                f"{self.feature(item['feature'])} was missing in {pct(item['test'])} of test records versus {pct(item['development'])} in training, so test results partly reflect imputation."))
         shifted = shift.get("mean_shift") or []
         if shifted:
             names = join([f"{self.feature(x['feature'])}（{fmt(x['shift'], 2)} SD）" if self.zh else
                           f"{self.feature(x['feature'])} ({fmt(x['shift'], 2)} SD)" for x in shifted[:3]], self.zh)
-            flags.append(self.t(f"测试集与开发集在{names}上的均值相差至少半个开发集标准差，两组样本并非完全可比。",
-                                f"Test and development means differed by at least half a development SD for {names}; the partitions are not fully comparable."))
+            flags.append(self.t(f"测试集与训练集在{names}上的均值相差至少半个训练集标准差，两者分布并不完全一致。",
+                                f"Test and training means differed by at least half a training SD for {names}; the partitions are not fully comparable."))
         ranged = shift.get("out_of_range") or []
         if ranged:
             item = ranged[0]
-            flags.append(self.t(f"{pct(item['fraction'])} 的测试记录在{self.feature(item['feature'])}上超出开发集取值范围，模型对这些记录是外推预测。",
-                                f"{pct(item['fraction'])} of test records fell outside the development range of {self.feature(item['feature'])}, so they were extrapolated."))
+            flags.append(self.t(f"{pct(item['fraction'])} 的测试记录在{self.feature(item['feature'])}上超出训练集取值范围，模型对这些记录是外推预测。",
+                                f"{pct(item['fraction'])} of test records fell outside the training range of {self.feature(item['feature'])}, so they were extrapolated."))
         strata = self.f.get("strata") or {}
         if strata and strata.get("n_strata", 0) > 1:
             unit = self.t("组", "group") if self.s["split"] == "group" else self.t("时间块", "time block")
@@ -484,8 +514,8 @@ class Narrator:
         s, tgt = self.s, self.f.get("target") or {}
         out = []
         population = self.ctx.get("population")
-        text = self.t(f"共 {s['development_n'] + s['test_n']} 条记录：开发集 {s['development_n']} 条，测试集 {s['test_n']} 条；预测变量 {s['feature_n']} 项，结局变量为{self.target}",
-                      f"The analysis used {s['development_n'] + s['test_n']} records: {s['development_n']} for development and {s['test_n']} for testing, with {s['feature_n']} predictors and outcome {self.target}")
+        text = self.t(f"共 {s['development_n'] + s['test_n']} 条记录：训练集 {s['development_n']} 条，测试集 {s['test_n']} 条；预测变量 {s['feature_n']} 项，目标变量为{self.target}",
+                      f"The analysis used {s['development_n'] + s['test_n']} records: {s['development_n']} for training and {s['test_n']} for testing, with {s['feature_n']} predictors and outcome {self.target}")
         if self.ctx.get("target_label"):
             text += f"（{s['target']}）" if self.zh else f" ({s['target']})"
         if self.ctx.get("target_unit"):
@@ -499,22 +529,22 @@ class Narrator:
         dev, test = tgt.get("development") or {}, tgt.get("test") or {}
         if self.s["task"] == "regression" and dev.get("mean") is not None:
             out.append(self.t(
-                f"开发集结局均值 {fmt(dev['mean'])}（SD {fmt(dev.get('sd'))}，范围 {fmt(dev['min'])} 至 {fmt(dev['max'])}）；"
+                f"训练集目标变量均值 {fmt(dev['mean'])}（SD {fmt(dev.get('sd'))}，范围 {fmt(dev['min'])} 至 {fmt(dev['max'])}）；"
                 f"测试集均值 {fmt(test.get('mean'))}（SD {fmt(test.get('sd'))}，范围 {fmt(test.get('min'))} 至 {fmt(test.get('max'))}）。",
-                f"Development outcome mean {fmt(dev['mean'])} (SD {fmt(dev.get('sd'))}, range {fmt(dev['min'])} to {fmt(dev['max'])}); "
+                f"Training outcome mean {fmt(dev['mean'])} (SD {fmt(dev.get('sd'))}, range {fmt(dev['min'])} to {fmt(dev['max'])}); "
                 f"test mean {fmt(test.get('mean'))} (SD {fmt(test.get('sd'))}, range {fmt(test.get('min'))} to {fmt(test.get('max'))})."))
         elif dev.get("counts"):
             def counts(entry):
                 total = sum(entry.values()) or 1
                 return join([f"{self.cls(k)} {v}（{pct(v / total)}）" if self.zh else f"{self.cls(k)} {v} ({pct(v / total)})"
                              for k, v in entry.items()], self.zh)
-            out.append(self.t(f"开发集类别构成：{counts(dev['counts'])}；测试集：{counts(test.get('counts') or {})}。",
-                              f"Development classes: {counts(dev['counts'])}; test: {counts(test.get('counts') or {})}."))
+            out.append(self.t(f"训练集类别构成：{counts(dev['counts'])}；测试集：{counts(test.get('counts') or {})}。",
+                              f"Training classes: {counts(dev['counts'])}; test: {counts(test.get('counts') or {})}."))
         shift = self.f.get("shift") or {}
         if dev.get("complete_rows") is not None:
             if shift.get("any_missing"):
-                out.append(self.t(f"开发集 {pct(dev['complete_rows'])}、测试集 {pct(test.get('complete_rows'))} 的记录特征完整。",
-                                  f"{pct(dev['complete_rows'])} of development and {pct(test.get('complete_rows'))} of test records had complete predictors."))
+                out.append(self.t(f"训练集 {pct(dev['complete_rows'])}、测试集 {pct(test.get('complete_rows'))} 的记录特征完整。",
+                                  f"{pct(dev['complete_rows'])} of training and {pct(test.get('complete_rows'))} of test records had complete predictors."))
             else:
                 out.append(self.t("所有记录的特征均无缺失。", "No predictor values were missing."))
         return out
@@ -523,8 +553,8 @@ class Narrator:
         s, rows = self.s, self.f["comparison"]
         items = join([f"{self.model(r['model'])}（{self.family(r['family'])}）" if self.zh else
                       f"{self.model(r['model'])} ({self.family(r['family'])})" for r in rows], self.zh)
-        text = self.t(f"比较的候选模型为{items}。各模型使用相同的交叉验证划分，以验证{self.mlabel()}均值最优者为最终模型，随后在完整开发集上重新拟合。",
-                      f"Candidates were {items}. All shared the same cross-validation splits; the best mean validation {self.mlabel()} selected the final model, which was refitted on all development data.")
+        text = self.t(f"比较的候选模型为{items}。各模型使用相同的交叉验证划分，以验证{self.mlabel()}均值最优者为最终模型，随后在完整训练集上重新拟合。",
+                      f"Candidates were {items}. All shared the same cross-validation splits; the best mean validation {self.mlabel()} selected the final model, which was refitted on all training data.")
         if s.get("failures"):
             failed = join([self.model(x.get("model", str(x))) if isinstance(x, dict) else str(x) for x in s["failures"]], self.zh)
             text += self.t(f"{failed}未能完成训练，未参与比较（原因见 run.log 与 summary.json）。",
@@ -533,22 +563,37 @@ class Narrator:
 
     def evaluation_methods(self, uncertainty_lines):
         s = self.s
-        strategy = (s.get("baseline") or {}).get("strategy")
-        base = BASELINES.get(strategy)
-        base_text = self.t(f"基线模型{base[0]}，不使用任何特征；它在开发集上拟合，用于衡量特征带来的增益。" if base else
-                           "基线模型不使用任何特征，只在开发集上学习简单规则，用于衡量特征带来的增益。",
-                           f"The baseline {base[1]} without using any predictor; fitted on development data, it measures the gain contributed by the features." if base else
-                           "The baseline learns a simple feature-free rule from development data and measures the gain contributed by the features.")
-        primary = self.t(f"主要指标为{self.mlabel()}（{self.better()}），其余指标作为补充。", f"The primary metric was {self.mlabel()} ({self.better()}); other metrics are supplementary.")
-        importance = self.t(f"特征作用以测试集置换重要性描述（每项特征重复置换 {s.get('importance_repeats')} 次，记录主要指标的平均下降）。",
-                            f"Feature reliance was described by test-set permutation importance ({s.get('importance_repeats')} repeats per feature; mean decrease in the primary metric).")
+        primary = self.t(f"模型选择以 {s['cv_folds']} 折交叉验证的平均{self.mlabel()}为准（{self.better()}），结果写作“均值 ± 标准差”（标准差为各折之间的波动）。其余指标作为补充。",
+                         f"Models were selected by mean {s['cv_folds']}-fold cross-validated {self.mlabel()} ({self.better()}), reported as mean ± SD across folds. Other metrics are supplementary.")
+        base_text = self.t(f"为判断特征是否有用，设置{self.baseline_full()}作为参照：它不读取任何特征，只用训练集目标变量本身做预测。模型只有明显优于它，才说明特征提供了预测信息。",
+                           f"To judge whether the features help, {self.baseline_full()} serves as reference: it reads no features and predicts from the training outcome alone. Only a model that clearly beats it shows the features carry predictive information.")
+        ci = self.t("测试集指标的 95% 置信区间（95% CI）用 bootstrap 估计：从测试集中有放回地重复抽样、每次重新计算指标，取第 2.5 和第 97.5 百分位数，反映测试样本有限带来的不确定性。"
+                    "“与基线的差值”在同一批 bootstrap 样本上计算模型与基线的指标之差，其 95% CI 不包含 0 即说明模型稳定优于基线。",
+                    "95% confidence intervals (95% CI) for test metrics come from bootstrap resampling of the test set (resample with replacement, recompute the metric, take the 2.5th and 97.5th percentiles), reflecting uncertainty from the finite test sample. "
+                    "The difference from the baseline is computed on the same bootstrap samples; a 95% CI excluding 0 means the model reliably beats the baseline. ")
+        importance = self.t(f"特征重要性采用测试集置换重要性（permutation importance）：将某一特征的取值随机打乱、其他特征不变，记录{self.mlabel()}的变化，重复 {s.get('importance_repeats')} 次取均值 ± 标准差。数值越大，模型越依赖该特征；接近 0 表示几乎不依赖。",
+                            f"Feature importance is test-set permutation importance: shuffle one feature, keep the others, record the change in {self.mlabel()}, and repeat {s.get('importance_repeats')} times (mean ± SD). Larger values mean stronger reliance; values near 0 mean little reliance. ")
         classes = s.get("classes") or []
         if s["task"] == "classification" and len(classes) == 2:
-            importance = self.t(f"二分类中，AUC、平均精确率与概率校准均以{self.cls(classes[1])}作为“阳性”类别（按类别名排序后的第二类）。",
-                                f"For binary outcomes, AUC, average precision and calibration treat {self.cls(classes[1])} as the positive class (second in sorted order). ") + importance
-        none = self.t("本报告不进行假设检验，交叉验证的折间标准差和置换重复间标准差描述波动，而非置信区间。",
-                      "No hypothesis tests are performed; between-fold and between-permutation SDs describe variability, not confidence intervals.")
-        return [primary + self.t("", " ") + base_text, " ".join(uncertainty_lines) + importance + self.t("", " ") + none]
+            importance += self.t(f"二分类中，AUC、平均精确率与概率校准以{self.cls(classes[1])}作为正类（按类别名排序的第二类）。",
+                                 f"For binary outcomes, AUC, average precision and calibration treat {self.cls(classes[1])} as the positive class (second in sorted order). ")
+        interval_info = uncertainty_lines if isinstance(uncertainty_lines, dict) else {}
+        if interval_info.get("omitted_reason"):
+            detail = self.t("本次未计算置信区间：" + {
+                "Time dependence requires a justified block length; row bootstrap is omitted.": "时间序列样本之间不独立，不适合逐样本 bootstrap。",
+                "Fewer than five test groups; cluster intervals are omitted.": "测试集的组数少于 5 个，按组 bootstrap 不可靠。",
+            }.get(interval_info["omitted_reason"], "该运行未启用 bootstrap。"), "No confidence intervals were computed in this run: " + {
+                "Time dependence requires a justified block length; row bootstrap is omitted.": "time-ordered samples are not independent, so sample-wise bootstrap is unsuitable.",
+                "Fewer than five test groups; cluster intervals are omitted.": "the test set has fewer than five groups, so group bootstrap is unreliable.",
+            }.get(interval_info["omitted_reason"], "bootstrap was disabled."))
+        elif interval_info:
+            unit = self.t("按组整体抽样" if "cluster" in str(interval_info.get("method")) else "按样本抽样", "resampling whole groups" if "cluster" in str(interval_info.get("method")) else "resampling samples")
+            detail = self.t(f"本次{unit}，重复 {interval_info.get('requested_repeats')} 次。", f"This run used {unit}, {interval_info.get('requested_repeats')} repeats.")
+        else:
+            detail = ""
+        if interval_info.get("omitted_reason") or not interval_info:
+            ci = ""
+        return [primary + self.t("", " ") + base_text, ci + detail, importance + self.t("报告不做显著性检验。", "No significance tests are performed.")]
 
     # ------------------------------------------------------------ results prose
     def comparison_results(self):
@@ -563,20 +608,25 @@ class Narrator:
                 out.append(reading if reading.endswith(("。", ".")) else reading + self.t("。", "."))
         positive = sel.get("baseline_gain_positive_folds")
         if positive is not None:
-            text = self.t(f"选定模型在 {positive}/{sel['folds']} 个验证折中优于同折基线（平均改善 {fmt(sel.get('baseline_gain_mean'))}）",
-                          f"The selected model beat the same-fold baseline in {positive}/{sel['folds']} folds (mean improvement {fmt(sel.get('baseline_gain_mean'))})")
+            text = self.t(f"交叉验证中，最终模型在 {positive}/{sel['folds']} 折都优于基线模型",
+                          f"In cross-validation the final model beat the baseline in {positive}/{sel['folds']} folds")
             gap = sel.get("train_gap")
-            if gap is not None:
-                text += self.t(f"；训练与验证{self.mlabel()}平均相差 {fmt(gap)}", f"; training and validation {self.mlabel()} differed by {fmt(gap)} on average")
-                if sel.get("mean") and abs(sel["mean"]) > 1e-12 and gap / abs(sel["mean"]) > 0.5:
-                    text += self.t("，训练表现明显好于验证，存在过拟合迹象", ", a clear training advantage suggesting overfitting")
+            if gap is not None and sel.get("train_mean") is not None:
+                overfit = sel.get("mean") and abs(sel["mean"]) > 1e-12 and gap / abs(sel["mean"]) > 0.5
+                text += self.t(f"；训练集{self.mlabel()}（{fmt(sel['train_mean'])}）与 CV {self.mlabel()}（{fmt(sel['mean'])}）" +
+                               ("差距明显，存在过拟合迹象" if overfit else "接近，没有明显过拟合"),
+                               f"; train {self.mlabel()} ({fmt(sel['train_mean'])}) and CV {self.mlabel()} ({fmt(sel['mean'])}) " +
+                               ("differ markedly, suggesting overfitting" if overfit else "are close, with no clear overfitting"))
             out.append(text + self.t("。", "."))
         return out
 
     def test_results(self):
         name = self.model(self.s["selected_model"])
-        text = self.t(f"在 {self.s['test_n']} 条测试记录上，选定的{name}{self.baseline_comparison(subject='')}。",
-                      f"On {self.s['test_n']} test records, the selected {name} had {self.baseline_comparison(subject='')}.")
+        text = self.t(f"在测试集（n = {self.s['test_n']}）上，{name}的 {self.baseline_comparison()}。",
+                      f"On the test set (n = {self.s['test_n']}), {name} achieved {self.baseline_comparison()}.")
+        improvement = self.improvement_clause()
+        if improvement:
+            text += improvement + self.t("。", ". ")
         secondary = self.secondary_test_clause()
         if secondary:
             text += self.t(f"补充指标：{secondary}。", f" Supplementary metrics: {secondary}.")
@@ -587,10 +637,13 @@ class Narrator:
         s, f = self.s, self.f
         paras = []
         main = self.conclusion()
-        secondary = self.secondary_test_clause()
+        secondary = "" if self.variance_clause() else self.secondary_test_clause()
+        reg = self.f.get("regression") or {}
+        if self.variance_clause() and reg.get("within_tolerance") is not None:
+            secondary = self.t(f"绝对误差 ≤ {fmt(reg['tolerance'])}{self.unit}的测试样本占 {pct(reg['within_tolerance'])}",
+                               f"{pct(reg['within_tolerance'])} of test samples had absolute error ≤ {fmt(reg['tolerance'])}{self.unit}")
         if secondary:
-            main += self.t(f"补充指标同样支持这一点：{secondary}。", f" Supplementary metrics agree: {secondary}.") if self.verdict() in ("supported", "supported_point") else \
-                self.t(f"补充指标：{secondary}。", f" Supplementary metrics: {secondary}.")
+            main += self.t(f"此外，{secondary}。", f" In addition, {secondary}.")
         paras.append(main)
         reading = self.family_reading()
         if reading:
@@ -607,17 +660,17 @@ class Narrator:
         good, bad = [], []
         strengths = {
             "large_test": lambda v: self.t(f"测试样本量较大（n = {v}）", f"a reasonably large test sample (n = {v})"),
-            "gain_interval": lambda v: self.t(f"相对基线改善的配对区间 {interval(*v)} 不包含零", f"a paired improvement interval ({interval(*v)}) excluding zero"),
-            "clear_selection": lambda v: self.t("选定模型与其余候选的差距超过折间波动", "a selection margin exceeding between-fold variation"),
-            "all_folds_beat_baseline": lambda v: self.t(f"选定模型在全部 {v} 个验证折中都优于基线", f"the selected model beating the baseline in all {v} folds"),
+            "gain_interval": lambda v: self.t(f"与基线差值的 95% CI {interval(*v)} 不包含 0", f"a 95% CI of the difference from baseline {interval(*v)} excluding 0"),
+            "clear_selection": lambda v: self.t("最终模型领先其余模型的幅度大于交叉验证标准差", "a lead over other models larger than the cross-validation SD"),
+            "all_folds_beat_baseline": lambda v: self.t(f"交叉验证的全部 {v} 折中，最终模型都优于基线", f"the selected model beating the baseline in all {v} cross-validation folds"),
             "external_test": lambda v: self.t("测试数据来自另行提供的外部样本", "an externally supplied test sample"),
         }
         weaknesses = {
-            "small_test": lambda v: self.t(f"测试样本仅 {v} 条，估计精度有限", f"only {v} test records, limiting precision"),
-            "gain_interval": lambda v: self.t(f"相对基线改善的区间 {interval(*v)} 包含零或位于零以下", f"an improvement interval ({interval(*v)}) that does not exclude zero"),
-            "wide_interval": lambda v: self.t(f"主要指标的 95% 区间宽度约为点估计的 {pct(v)}", f"a 95% interval about {pct(v)} as wide as the estimate"),
-            "close_runner_up": lambda v: self.t(f"{join([self.model(m) for m in v], True)}与选定模型的差距在折间波动之内，模型排序并不稳定",
-                                                f"a runner-up ({join([self.model(m) for m in v], False)}) within between-fold variation of the selected model, so the ranking is not stable"),
+            "small_test": lambda v: self.t(f"测试集只有 {v} 个样本，估计精度有限", f"only {v} test samples, limiting precision"),
+            "gain_interval": lambda v: self.t(f"与基线差值的 95% CI {interval(*v)} 包含 0", f"a 95% CI of the difference from baseline {interval(*v)} that includes 0"),
+            "wide_interval": lambda v: self.t(f"主要指标的 95% CI 较宽（宽度约为点估计的 {pct(v)}）", f"a wide 95% CI (about {pct(v)} of the estimate)"),
+            "close_runner_up": lambda v: self.t(f"{join([self.model(m) for m in v], True)}与最终模型的差距小于交叉验证标准差，模型排序不稳定",
+                                                f"a runner-up ({join([self.model(m) for m in v], False)}) within cross-validation variability of the selected model, so the ranking is not stable"),
         }
         good = [strengths[code](value) for code, value in st["strengths"]]
         bad = [weaknesses[code](value) for code, value in st["weaknesses"]]
@@ -626,14 +679,14 @@ class Narrator:
             text += self.t(f"支持这一结论的证据包括：{'；'.join(good)}。", f"The conclusion is supported by {'; '.join(good)}. ")
         if bad:
             text += self.t(f"削弱其强度的因素包括：{'；'.join(bad)}。", f"Its strength is limited by {'; '.join(bad)}. ")
-        text += self.t("此外，选定模型的交叉验证分数是在多个候选中取最优得到的，存在选择偏倚，因此以测试集结果为准。",
+        text += self.t("此外，最终模型的交叉验证分数是在多个候选中取最优得到的，存在选择偏倚，因此以测试集结果为准。",
                        "In addition, the selected model's cross-validation score is the best of several candidates and therefore optimistic; the test result is the reference estimate.")
         return text
 
     def limitations_paragraph(self):
         s = self.s
         parts = []
-        parts.append(self.t("测试集为内部留出样本，与开发集来自同一数据来源，结论能否推广到其他机构、人群或时间需要外部验证" if not s["external_test"] else
+        parts.append(self.t("测试集为内部留出样本，与训练集来自同一数据来源，结论能否推广到其他机构、人群或时间需要外部验证" if not s["external_test"] else
                             "测试数据另行提供，但推广到其他来源仍取决于其采集方式与人群构成",
                             "The test set is an internal holdout from the same source, so transfer to other sites, populations or periods requires external validation" if not s["external_test"] else
                             "The test data were supplied separately, but transfer to other sources still depends on how they were collected"))
@@ -659,27 +712,27 @@ class Narrator:
             steps.append(self.t("在独立来源（不同机构、批次或时间）的数据上评价已保存的 pipeline.joblib，以检验可推广性。",
                                 "Evaluate the saved pipeline.joblib on data from an independent source (site, batch or period) to test transfer."))
         if any(code == "close_runner_up" for code, _ in f["strength"]["weaknesses"]):
-            steps.append(self.t("如需在接近的候选间取舍，可在开发集内用更多折或重复交叉验证比较，不要依据本次测试结果重新排序。",
-                                "To choose between close candidates, compare them on development data with more or repeated folds; do not re-rank on this test set."))
+            steps.append(self.t("如需在接近的候选间取舍，可在训练集内用更多折或重复交叉验证比较，不要依据本次测试结果重新排序。",
+                                "To choose between close candidates, compare them on training data with more or repeated folds; do not re-rank on this test set."))
         sel = f.get("selected") or {}
         if sel.get("train_gap") is not None and sel.get("mean") and abs(sel["mean"]) > 1e-12 and sel["train_gap"] / abs(sel["mean"]) > 0.5:
-            steps.append(self.t("选定模型存在过拟合迹象，可在开发集内比较正则化更强或更简单的配置（例如 --search grid）。",
-                                "The selected model shows signs of overfitting; compare stronger regularization or simpler settings on development data (e.g. --search grid)."))
+            steps.append(self.t("最终模型存在过拟合迹象，可在训练集内比较正则化更强或更简单的配置（例如 --search grid）。",
+                                "The selected model shows signs of overfitting; compare stronger regularization or simpler settings on training data (e.g. --search grid)."))
         imp = f.get("importance") or {}
         if imp.get("negligible"):
-            steps.append(self.t(f"{join([self.feature(x) for x in imp['negligible']], True)}对预测几乎没有贡献；若考虑删除，应在开发集内重新比较，并用新的测试数据评价删减后的模型。",
-                                f"{join([self.feature(x) for x in imp['negligible']], False)} contributed little; if removing them, re-compare on development data and evaluate on new test data."))
+            steps.append(self.t(f"{join([self.feature(x) for x in imp['negligible']], True)}对预测几乎没有贡献；若考虑删除，应在训练集内重新比较，并用新的测试数据评价删减后的模型。",
+                                f"{join([self.feature(x) for x in imp['negligible']], False)} contributed little; if removing them, re-compare on training data and evaluate on new test data."))
         shift = f.get("shift") or {}
         for item in (shift.get("missing") or [])[:1]:
             steps.append(self.t(f"核查{self.feature(item['feature'])}在测试集中缺失率变化的原因（采集流程、批次或设备）。",
                                 f"Investigate why missingness of {self.feature(item['feature'])} changed in the test data (collection process, batch or device)."))
         cls = f.get("classification") or {}
         if cls.get("weakest") and cls["weakest"]["recall"] < 0.6:
-            steps.append(self.t(f"{self.cls(cls['weakest']['class'])}的识别率偏低，可收集更多该类样本，或在开发集内比较类别重采样（--resample）。",
-                                f"Recall for {self.cls(cls['weakest']['class'])} was low; collect more such cases or compare class resampling (--resample) on development data."))
+            steps.append(self.t(f"{self.cls(cls['weakest']['class'])}的识别率偏低，可收集更多该类样本，或在训练集内比较类别重采样（--resample）。",
+                                f"Recall for {self.cls(cls['weakest']['class'])} was low; collect more such cases or compare class resampling (--resample) on training data."))
         if cls.get("ece") is not None and cls["ece"] > 0.1:
-            steps.append(self.t("若需要使用预测概率，应先在开发数据上进行概率校准，并在新数据上评价校准效果。",
-                                "If predicted probabilities will be used, calibrate them on development data and evaluate calibration on new data."))
+            steps.append(self.t("若需要使用预测概率，应先在训练集上进行概率校准，并在新数据上评价校准效果。",
+                                "If predicted probabilities will be used, calibrate them on training data and evaluate calibration on new data."))
         if self.s["task"] == "regression" and not self.ctx.get("tolerance"):
             steps.append(self.t("结合领域知识确定可接受误差，用于判断模型在实际应用中是否足够准确。",
                                 "Define an acceptable error from domain knowledge to judge practical adequacy."))
@@ -691,32 +744,29 @@ class Narrator:
         name = self.model(row["model"])
         folds = row.get("fold_scores") or []
         rng = self.t(f"各折 {fmt(row.get('min'))}–{fmt(row.get('max'))}", f"folds {fmt(row.get('min'))}–{fmt(row.get('max'))}") if folds else ""
-        text = self.t(f"验证{self.mlabel()}为 {fmt(row['mean'])} ± {fmt(row.get('sd'))}（{rng}，{row['folds']} 折）",
-                      f"Validation {self.mlabel()} was {fmt(row['mean'])} ± {fmt(row.get('sd'))} ({rng}; {row['folds']} folds)")
+        text = self.t(f"交叉验证{self.mlabel()}为 {fmt(row['mean'])} ± {fmt(row.get('sd'))}（{rng}，共 {row['folds']} 折）",
+                      f"Cross-validated {self.mlabel()} was {fmt(row['mean'])} ± {fmt(row.get('sd'))} ({rng}; {row['folds']} folds)")
         positive = row.get("baseline_gain_positive_folds")
         if positive is not None:
-            text += self.t(f"，{positive}/{row['folds']} 折优于同折基线（平均改善 {fmt(row.get('baseline_gain_mean'))}）",
-                           f"; it beat the same-fold baseline in {positive}/{row['folds']} folds (mean improvement {fmt(row.get('baseline_gain_mean'))})")
+            text += self.t(f"，{positive}/{row['folds']} 折优于基线（平均领先 {fmt(row.get('baseline_gain_mean'))}）",
+                           f"; it beat the baseline in {positive}/{row['folds']} folds (mean lead {fmt(row.get('baseline_gain_mean'))})")
         if row.get("train_gap") is not None:
-            text += self.t(f"，训练-验证差 {fmt(row['train_gap'])}", f"; training-validation difference {fmt(row['train_gap'])}")
+            text += self.t(f"，训练分与验证分平均相差 {fmt(row['train_gap'])}", f"; training and validation scores differed by {fmt(row['train_gap'])} on average")
         text += self.t("。", ". ")
         if row.get("train_gap") is not None and row.get("mean") and abs(row["mean"]) > 1e-12 and row["train_gap"] / abs(row["mean"]) > 0.5:
             text += self.t(f"该模型在训练折上的表现（平均 {fmt(row.get('train_mean'))}）远好于验证折，提示对训练数据过拟合。",
                            f"Its training-fold performance (mean {fmt(row.get('train_mean'))}) far exceeded validation, indicating overfitting. ")
         extra = {k: v for k, v in (row.get("secondary") or {}).items() if k != self.metric and k in METRIC_SHORT}
         if extra:
-            text += self.t("其他验证指标均值：", "Other mean validation metrics: ") + \
+            text += self.t("其他指标的交叉验证均值：", "Other cross-validated metrics (mean): ") + \
                 self.t("，", ", ").join(f"{self.mlabel(k)} {fmt(v)}" for k, v in extra.items()) + self.t("。", ". ")
         if row["standing"] in ("selected", "sole"):
             text += self.t("该模型被选为最终模型，其测试集表现见正文。", "This model was selected; its test performance is reported in the main text.")
         elif sel is not None:
-            ratio = row.get("margin_sd")
-            text += self.t(f"与选定的{self.model(sel['model'])}相比差 {fmt(row.get('margin'))}", f"It trailed the selected {self.model(sel['model'])} by {fmt(row.get('margin'))}")
-            if ratio is not None:
-                text += self.t(f"（约 {fmt(ratio, 2)} 个折间标准差）", f" (about {fmt(ratio, 2)} between-fold SDs)")
-            text += self.t(f"，判断为“{STANDING[row['standing']][0]}”。", f", rated '{STANDING[row['standing']][1]}'. ")
+            text += self.t(f"比选定的{self.model(sel['model'])}差 {fmt(row.get('margin'))}，判断为“{STANDING[row['standing']][0]}”。",
+                           f"It trailed the selected {self.model(sel['model'])} by {fmt(row.get('margin'))} (rated '{STANDING[row['standing']][1]}'). ")
             if row["standing"] == "near":
-                text += self.t("差距处于折间波动范围内，不能认为该模型确实较差。", "The gap is within fold-to-fold variation, so it is not clearly worse.")
-            text += self.t("按预设流程，候选模型只报告开发集验证结果，测试集仅用于评价选定模型。",
+                text += self.t("差距小于交叉验证标准差，两者表现相当。", "The gap is smaller than the cross-validation SD, so the two perform comparably.")
+            text += self.t("按标准流程，非最终模型只报告交叉验证结果，测试集只用于评估最终模型。",
                            " By design only the selected model is evaluated on the test set.")
         return text.strip()

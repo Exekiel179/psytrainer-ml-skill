@@ -173,8 +173,8 @@ reads JSON/CSVs rather than loading a pickle or retraining; `report DIR
 
 1. **Abstract** (objective / methods / results / conclusion) and numbered **key
    findings**. The conclusion answers whether the features predict the outcome:
-   *supported* when the paired improvement over the feature-free baseline has a
-   95% interval above zero; *supported (point estimate only)* when no interval is
+   *supported* when the improvement over the dummy baseline (same bootstrap
+   samples) has a 95% CI excluding 0; *supported (point estimate only)* when no interval is
    available; *uncertain* when the interval includes zero; *not supported* when
    the model does not beat the baseline.
 2. **Methods**: data (counts, outcome distribution or class mix per partition,
@@ -195,8 +195,7 @@ reads JSON/CSVs rather than loading a pickle or retraining; `report DIR
 
 Fixed, documented rules decide wording. Candidate standing uses the gap to the
 selected model in pooled between-fold SD units (≤1 close, 1–3 weaker, >3 clearly
-weaker). Relative margins are "x% lower error" with the worse model as the
-denominator. Data issues are raised only when triggered: standardized mean shift
+weaker). Data issues are raised only when triggered: standardized mean shift
 ≥0.5 development SD, missingness difference ≥10 percentage points, ≥10% of test
 values outside the development range, Spearman |ρ| ≥0.7 between important
 features, or ECE >0.1. A feature is called negligible when its mean permutation
@@ -205,6 +204,15 @@ repeat SDs. A family reading ("linear beats non-linear suggests an approximately
 linear relationship") is phrased as a reading of the comparison, never as a test
 of mechanism. Overfitting is mentioned when the train−validation gap exceeds half
 the validation score. Only the selected model is evaluated on the test set.
+
+### Wording conventions
+
+Wording follows ML papers in psychology: training/test set, cross-validation
+(M, SD across folds), a named dummy baseline, APA statistics with two decimals
+(`MAE = 0.16, 95% CI [0.11, 0.21]`), "X% lower than baseline (difference =,
+95% CI [...])", permutation importance as `ΔMAE = …, SD = …`, and R² stated as
+variance explained. Development/validation jargon specific to this tool
+("开发集", "配对改善", importance shares) is not used.
 
 ### Report context
 

@@ -71,8 +71,8 @@ def diagnostic_plots(directory, summary, add):
     ax.set_ylim(-.6, 1.6)
     ax.set_xlabel(f"Held-out {primary} ({summary['direction']} is better)")
     title(ax, "a", "Held-out performance and uncertainty")
-    add(fig, "test-performance", (f"独立测试主要指标（n={n}）。蓝色为所选模型，灰色为开发集拟合的基线。若可计算，线段为模型指标 95% 百分位 bootstrap 区间；随机设计按行、分组设计按整组重采样，时间设计不绘制区间。基线仅显示点估计；配对增益及其区间见源表。区间不覆盖训练和模型选择不确定性。" if zh else
-        f"Held-out primary metric (n={n}). Blue: selected model; gray: development-fitted baseline point estimate. Where defined, model bars are 95% percentile bootstrap intervals (rows for random, whole groups for group designs; omitted for time). Paired gain intervals are in the source table. Training/selection uncertainty is excluded."), "metric-intervals.csv; analysis.json")
+    add(fig, "test-performance", (f"独立测试主要指标（n={n}）。蓝色为所选模型，灰色为基线模型。若可计算，线段为模型指标 95% 百分位 bootstrap 区间；随机设计按行、分组设计按整组重采样，时间设计不绘制区间。基线仅显示点估计；相对基线的差值及其区间见源表。区间不覆盖训练和模型选择不确定性。" if zh else
+        f"Held-out primary metric (n={n}). Blue: selected model; gray: training-fitted baseline point estimate. Where defined, model bars are 95% percentile bootstrap intervals (rows for random, whole groups for group designs; omitted for time). Paired gain intervals are in the source table. Training/selection uncertainty is excluded."), "metric-intervals.csv; analysis.json")
 
     if summary["task"] == "regression":
         observed, predicted = pd.to_numeric(pred.observed), pd.to_numeric(pred.predicted)
@@ -166,8 +166,8 @@ def diagnostic_plots(directory, summary, add):
             ax.set(xlabel="Probability threshold" if "positive_probability" in pred else "Decision score threshold", ylabel="Fraction", ylim=(-.02, 1.02))
             ax.legend(loc="upper center", bbox_to_anchor=(.5, -.22), ncol=3)
             title(ax, "a", "Threshold trade-offs on held-out data")
-            add(fig, "threshold-tradeoffs", ("阈值敏感性为测试集描述性分析；虚线为常规参考阈值（概率 0.5 或决策分数 0），不一定等于厂商 predict 的规则。阳性预测比例反映待处理样本量。未自动选取最优阈值、未更改模型；任何阈值调整必须在开发集及实际误判成本下确定，并用新的独立数据验证。" if zh else
-                "Descriptive test threshold sensitivity; dashed line is the conventional reference (probability 0.5 or decision score 0), not necessarily the vendor predict rule. Positive fraction describes workload. No optimal threshold is selected and the model is unchanged. Determine changes using development data and error costs, then validate on new independent data."), "thresholds.csv")
+            add(fig, "threshold-tradeoffs", ("阈值敏感性为测试集描述性分析；虚线为常规参考阈值（概率 0.5 或决策分数 0），不一定等于厂商 predict 的规则。阳性预测比例反映待处理样本量。未自动选取最优阈值、未更改模型；任何阈值调整必须在训练集及实际误判成本下确定，并用新的独立数据验证。" if zh else
+                "Descriptive test threshold sensitivity; dashed line is the conventional reference (probability 0.5 or decision score 0), not necessarily the vendor predict rule. Positive fraction describes workload. No optimal threshold is selected and the model is unchanged. Determine changes using training data and error costs, then validate on new independent data."), "thresholds.csv")
 
     if (directory / "importance.csv").exists():
         imp = pd.read_csv(directory / "importance.csv", dtype={"feature": str}, keep_default_na=False).head(12).iloc[::-1]
@@ -193,11 +193,11 @@ def diagnostic_plots(directory, summary, add):
             ax.set_xticks(range(len(features)), keys)
             ax.set_yticks(range(len(features)), keys)
             ax.set(xlabel="Input feature", ylabel="Input feature")
-            fig.colorbar(mesh, ax=ax, label="Development Spearman correlation", shrink=.85)
+            fig.colorbar(mesh, ax=ax, label="Training Spearman correlation", shrink=.85)
             title(ax, "a", "Correlated predictors can share reliance")
             mapping = "; ".join(f"{key}={feature}" for key, feature in zip(keys, features))
-            add(fig, "feature-correlation", (f"开发集原始特征的 Spearman 相关，使用成对非缺失样本；常量或样本不足时为空。展示测试重要性前 {len(features)} 个特征，完整矩阵另存。不以此筛选模型。相关特征可能相互替代，因而单列置换重要性偏低；相关性不是因果证据。映射：{mapping}。" if zh else
-                f"Development raw-feature Spearman correlations using pairwise complete observations; constant/insufficient pairs are blank. Top {len(features)} test-reliance features displayed; full matrix retained. No model selection uses this view. Correlated features can substitute, masking single-feature reliance; not causal evidence. Key: {mapping}."), "feature-correlations.csv; importance.csv")
+            add(fig, "feature-correlation", (f"训练集原始特征的 Spearman 相关，使用成对非缺失样本；常量或样本不足时为空。展示测试重要性前 {len(features)} 个特征，完整矩阵另存。不以此筛选模型。相关特征可能相互替代，因而单列置换重要性偏低；相关性不是因果证据。映射：{mapping}。" if zh else
+                f"Training raw-feature Spearman correlations using pairwise complete observations; constant/insufficient pairs are blank. Top {len(features)} test-reliance features displayed; full matrix retained. No model selection uses this view. Correlated features can substitute, masking single-feature reliance; not causal evidence. Key: {mapping}."), "feature-correlations.csv; importance.csv")
 
     shift = pd.read_csv(directory / "feature-shift.csv", dtype={"feature": str})
     shift["magnitude"] = shift.standardized_mean_shift.abs()
@@ -207,7 +207,7 @@ def diagnostic_plots(directory, summary, add):
     ax.scatter(shown.standardized_mean_shift, yy, color=ORANGE, s=22)
     ax.axvline(0, color=GRAY, ls="--", lw=.8)
     ax.set_yticks(yy, [textwrap.fill(f, 20) for f in shown.feature])
-    ax.set_xlabel("(Test mean - development mean) / SD")
+    ax.set_xlabel("(Test mean - training mean) / SD")
     bx.scatter(shown.development_missing, yy-.1, color=GRAY, label="Development", s=18)
     bx.scatter(shown.test_missing, yy+.1, color=BLUE, label="Test", s=22)
     bx.set_yticks(yy, [])
@@ -217,8 +217,8 @@ def diagnostic_plots(directory, summary, add):
         axis.set_ylim(-.5, len(shown)-.5)
     title(ax, "a", "Feature distribution shift")
     title(bx, "b", "Missingness shift")
-    add(fig, "feature-shift", (f"开发集与测试集输入差异，按绝对标准化均值差展示前 {len(shown)}/{len(shift)} 个特征。标准差仅来自开发集；常量/全缺失特征的位移不定义，保留空点。缺失率使用全部样本。完整表还提供越出开发集取值范围的比例。该图描述输入差异，不证明漂移导致误差。" if zh else
-        f"Development/test input differences: top {len(shown)}/{len(shift)} by absolute standardized mean shift. SD uses development only; constant/all-missing features have undefined shifts and blank marks. Missingness uses all samples. Source also records fraction outside development range. Descriptive differences do not establish causes of error."), "feature-shift.csv")
+    add(fig, "feature-shift", (f"训练集与测试集输入差异，按绝对标准化均值差展示前 {len(shown)}/{len(shift)} 个特征。标准差仅来自训练集；常量/全缺失特征的位移不定义，保留空点。缺失率使用全部样本。完整表还提供越出训练集取值范围的比例。该图描述输入差异，不证明漂移导致误差。" if zh else
+        f"Development/test input differences: top {len(shown)}/{len(shift)} by absolute standardized mean shift. SD uses training only; constant/all-missing features have undefined shifts and blank marks. Missingness uses all samples. Source also records fraction outside training range. Descriptive differences do not establish causes of error."), "feature-shift.csv")
     if (directory / "strata-metrics.csv").exists():
         strata = pd.read_csv(directory / "strata-metrics.csv", dtype={"stratum": str})
         pages = int(np.ceil(len(strata) / 20))
