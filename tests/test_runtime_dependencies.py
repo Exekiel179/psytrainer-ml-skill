@@ -25,7 +25,6 @@ class DependencyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
                  patch.object(install_runtime, "install_requirements") as install, \

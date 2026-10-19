@@ -1,10 +1,5 @@
 # Agent Setup
 
-Before installing the runtime, remind the user of the two options: place a
-single `PsyTrainer-*.whl` under `vendor/` if they have one, or proceed without
-a wheel and use this Skill’s Pipeline scripts (local code). Wheel is optional;
-never require `--legacy` / `--wheel` CLI flags. See [SKILL.md](../SKILL.md).
-
 Download `psytrainer-ml-skill.zip` from the repository's latest GitHub Release.
 Extract its complete `psytrainer-ml/` folder into the requested host directory:
 
@@ -25,36 +20,16 @@ Setup requires installed CPython 3.12-3.14; `--python PATH` selects one explicit
 It creates `.venv` and records its interpreter in `runtime.json`. `ready` means
 the environment exists, not that optional packages are installed.
 
-## Pipeline (default, no PsyTrainer wheel)
-
-If the user does not load a wheel, use this path: `install_runtime.py` creates
-`.venv` / `runtime.json`, and agents run `scripts/pipeline_train.py` (the Skill’s
-own implementation—no vendor wheel). Offline dependency directories use
-`--wheelhouse PATH` (prebuilt packages only), which is separate from PsyTrainer.
+This Skill is **Pipeline-only** (`scripts/pipeline_train.py`). There is no optional
+PsyTrainer wheel, `vendor/` legacy path, or `.venv-legacy`.
 
 ```bash
 python3 scripts/install_runtime.py
 "$PY" scripts/pipeline_train.py train ...
 ```
 
-## Optional PsyTrainer wheel (historical INI only)
-
-Do not pass CLI flags for wheel/legacy. Place exactly one `PsyTrainer-*.whl`
-under `vendor/`, then rerun the same setup command; when that single wheel is
-found, setup also writes `.venv-legacy` and `runtime-legacy.json`. When none is
-found, setup stays Pipeline-only.
-
-```bash
-mkdir -p vendor
-# copy exactly one PsyTrainer-*.whl into vendor/
-python3 scripts/install_runtime.py
-# use runtime-legacy.json -> python for historical INI jobs
-```
-
-Missing wheels stay Pipeline-only. Multiple `vendor/PsyTrainer-*.whl` files are
-skipped with a clear message—keep exactly one. See [migration.md](migration.md).
-To list historical INI engine capabilities after that environment exists:
-`PSYTRAINER_LEGACY=1 "$PY_LEGACY" scripts/ml.py capabilities`.
+Offline dependency directories use `--wheelhouse PATH` (prebuilt Python packages
+only—not a PsyTrainer distribution).
 
 Task commands check their dependencies each time, without network access when
 requirements are satisfied. Do not preinstall everything or run sample training.

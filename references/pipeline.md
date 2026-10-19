@@ -167,24 +167,21 @@ question. Reports are deterministic templates filled from measured results,
 with no LLM calls, invented references or novelty claims. Report regeneration
 reads JSON/CSVs rather than loading a pickle or retraining.
 
-Reports use an academic abstract/methods/results/discussion structure, with
-plain-language metric definitions in an appendix. Results retain measured values,
-baseline direction and supported intervals, plus short interpretive prose: why
-the selected model won on the primary validation metric (and fold stability when
-informative), what the test metric and baseline gap mean, and where claims stop
-(no invented significance or causality). Every successfully trained model has
-its own results subsection that positions it as selected / near selected /
-weaker / clearly weaker relative to the winner (validation folds, search
-configuration when present, and held-out metrics for the selected model only).
-When four or more models succeed, the overview report indexes dedicated
-`reports/<ModelTag>.md` and `.docx` files instead of inlining every section. A
-validation summary table is appendix-only and must not be the sole model
-presentation. Discussion opens with comparative judgment and evidence strength,
-then lists scope limits; figure notes explain only their local statistical
-meaning. The editorial approach adapts ResearchFlow's
-`academic-defensive-editing` principles: remove repeated disclaimers, preserve
-consequential qualifications, and avoid strengthening claims. This is built into
-local templates and requires no additional Skill or model call.
+Reports use an academic abstract/methods/results/discussion structure shaped by
+claim → evidence → interpretation (academic-paper strategist/composer standards
+adapted to measured ML runs). Each major block states which model is preferred
+(or how a candidate stands), cites shared-CV or test numbers as evidence, then
+interprets meaning and limits—without inventing significance or causality.
+Plain-language metric definitions remain in an appendix. Every successfully
+trained model has its own results subsection (selected / near selected / weaker /
+clearly weaker), with validation folds, search configuration when present, and
+held-out metrics for the selected model only. When four or more models succeed,
+the overview indexes dedicated `reports/<ModelTag>.md` and `.docx` files. A
+validation summary table is appendix-only. Discussion opens with preference claim
+and evidence strength, then scope limits; figure notes explain only local
+statistical meaning. Editorial stance: remove empty marketing, preserve
+consequential qualifications, avoid strengthening claims. Templates are local;
+no LLM rewrite is required.
 
 Report organization adapts the question/outline/evidence/consistency principles
 of academic-paper-strategist and academic-paper-composer to empirical ML.

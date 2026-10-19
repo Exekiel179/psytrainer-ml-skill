@@ -101,7 +101,9 @@ class ReportExplanationTests(unittest.TestCase):
             text = abstract(s, zh)
             self.assertIn('未能计算' if zh else 'undefined', text)
             self.assertIn('外部' if zh else 'external', text)
-            self.assertIn('选定' if zh else 'Selection', text)
+            self.assertIn('主张' if zh else 'Claim', text)
+            self.assertIn('证据' if zh else 'Evidence', text)
+            self.assertIn('阐释' if zh else 'Interpretation', text)
             self.assertNotIn('显著', text)
 
     def test_f_threshold_includes_boundary_in_description(self):
@@ -136,10 +138,10 @@ class ReportExplanationTests(unittest.TestCase):
         selected = model_result_paragraphs(
             {'model': 'ModelLRRegressor', 'mean': .3, 'sd': .05, 'folds': 3},
             summary, [.2, .3, .4], {'fit_intercept': True}, True)
-        self.assertTrue(any('最终选定' in line for line in selected))
+        self.assertTrue(any('主张' in line and '最终选定' in line for line in selected))
         self.assertTrue(any('mae=0.25' in line for line in selected))
         self.assertTrue(any('fit_intercept' in line for line in selected))
-        self.assertTrue(any('选定线性回归' in line or '按主指标' in line for line in selected))
+        self.assertTrue(any('主指标' in line for line in selected))
         near = model_result_paragraphs(
             {'model': 'ModelRandomForestRegressor', 'mean': .4, 'sd': .1, 'folds': 3},
             summary, [.35, .4, .45], None, True)
@@ -153,9 +155,11 @@ class ReportExplanationTests(unittest.TestCase):
         self.assertEqual(model_role_short(summary['comparison'][0], summary, True), '选定')
         self.assertEqual(model_role_short(summary['comparison'][2], summary, True), '明显更差')
         rationale = selection_rationale(summary, True)
+        self.assertIn('主张', rationale)
+        self.assertIn('证据', rationale)
         self.assertTrue('相对差距' in rationale or '改善约' in rationale)
         notes = ' '.join(discussion(summary, {'interval': {'units': 6}}, True))
-        self.assertIn('按主指标', notes)
+        self.assertIn('主张', notes)
         self.assertIn('证据强度', notes)
         self.assertNotIn('显著优于', notes)
         self.assertIn('随机森林', model_name('ModelRandomForestRegressor', True))
@@ -166,6 +170,9 @@ class ReportExplanationTests(unittest.TestCase):
         row = {'metric': 'mae', 'estimate': .3, 'baseline': .5, 'gain': .2,
                'lower': .1, 'upper': .6, 'gain_lower': .05, 'gain_upper': .4}
         text = result_summary(summary, [row], True)
+        self.assertIn('主张', text)
+        self.assertIn('证据', text)
+        self.assertIn('阐释', text)
         self.assertIn('平均绝对误差', text)
         self.assertIn('可观测改善', text)
         self.assertIn('不能外推', text)

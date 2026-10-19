@@ -154,8 +154,24 @@ def model_role_short(row, s, zh):
     return labels[standing][0 if zh else 1]
 
 
-def selection_rationale(s, zh):
-    """Explain why the selected model won among candidates (validation evidence only)."""
+def selection_claim(s, zh):
+    """One-sentence claim: which model is preferred in this run."""
+    chosen = selected_comparison_row(s)
+    if not chosen:
+        return ""
+    name = model_name(chosen["model"], zh)
+    n = len(s.get("comparison") or [])
+    if zh:
+        if n <= 1:
+            return f"主张：在本次可完成验证的配置中，{name} 是唯一可用模型，因而进入测试评价。"
+        return f"主张：在共享开发集验证下，{name} 优于本次其余候选，故选定为最终模型。"
+    if n <= 1:
+        return f"Claim: {name} is the only configuration with usable validation and therefore proceeds to test evaluation."
+    return f"Claim: under shared development validation, {name} outperforms the other candidates and is selected."
+
+
+def selection_evidence(s, zh):
+    """Evidence package for the selection claim (validation numbers only)."""
     comparison = s.get("comparison") or []
     chosen = selected_comparison_row(s)
     if not chosen:
@@ -165,141 +181,156 @@ def selection_rationale(s, zh):
     better = ("越低越好" if s["direction"] == "lower" else "越高越好") if zh else (
         "lower is better" if s["direction"] == "lower" else "higher is better")
     if len(comparison) == 1:
-        return (f"本次仅 {name} 完成可用验证（{metric} 均值 {chosen['mean']:.4g}，折间 SD {chosen['sd']:.4g}），"
-                f"故作为唯一可选配置进入测试评价；指标方向为{better}。" if zh else
-                f"Only {name} produced usable validation ({metric} mean {chosen['mean']:.4g}, "
-                f"between-fold SD {chosen['sd']:.4g}), so it alone proceeded to test evaluation "
-                f"({better}).")
+        return (f"证据：{name} 的开发集 {metric} 均值为 {chosen['mean']:.4g}，折间 SD 为 {chosen['sd']:.4g}"
+                f"（指标方向：{better}）。" if zh else
+                f"Evidence: {name} had development {metric} mean {chosen['mean']:.4g} and between-fold SD "
+                f"{chosen['sd']:.4g} ({better}).")
     peers = [row for row in comparison if row["model"] != chosen["model"]]
     runner = min(peers, key=lambda row: relative_validation_gap(row["mean"], chosen["mean"], s["direction"]))
     gap = relative_validation_gap(runner["mean"], chosen["mean"], s["direction"])
     runner_name = model_name(runner["model"], zh)
     stability = ""
     if chosen["sd"] <= min(row["sd"] for row in peers) + 1e-12:
-        stability = ("折间波动在候选中亦属较小一侧，" if zh else
-                     "Its between-fold SD was among the smaller values, ")
+        stability = ("折间波动在候选中亦属较小一侧；" if zh else
+                     "Between-fold SD was among the smaller values; ")
     elif chosen["sd"] > max(row["sd"] for row in peers):
-        stability = ("尽管折间波动高于部分候选，" if zh else
-                     "Although its between-fold SD exceeded some candidates, ")
+        stability = ("折间波动高于部分候选；" if zh else
+                     "Between-fold SD exceeded some candidates; ")
     if gap <= 1e-9:
-        margin = ("与次优候选验证均值实质持平，按主指标均值并列择优规则选定；" if zh else
-                  "validation means tied with the next candidate; selection followed the primary-metric mean rule; ")
+        margin = ("与次优候选验证均值实质持平，按主指标均值规则选定。" if zh else
+                  "validation means tied with the runner-up; the primary-metric mean rule selected it.")
     elif gap <= _NEAR_GAP:
-        margin = (f"相对次优候选 {runner_name}（验证 {metric}={runner['mean']:.4g}）优势有限（相对差距约 {gap:.1%}），"
+        margin = (f"相对次优候选 {runner_name}（{metric}={runner['mean']:.4g}）优势有限（约 {gap:.1%}）。"
                   if zh else
-                  f"the margin over runner-up {runner_name} (CV {metric}={runner['mean']:.4g}) is modest "
-                  f"(about {gap:.1%} relative), ")
+                  f"the margin over runner-up {runner_name} ({metric}={runner['mean']:.4g}) is about {gap:.1%}.")
     else:
-        margin = (f"相对次优候选 {runner_name}（验证 {metric}={runner['mean']:.4g}）改善约 {gap:.1%}，"
+        margin = (f"相对次优候选 {runner_name}（{metric}={runner['mean']:.4g}）改善约 {gap:.1%}。"
                   if zh else
-                  f"improving on runner-up {runner_name} (CV {metric}={runner['mean']:.4g}) by about {gap:.1%} relative, ")
+                  f"it improves on runner-up {runner_name} ({metric}={runner['mean']:.4g}) by about {gap:.1%}.")
     if zh:
-        return (f"按主指标 {metric}（{better}）的开发集验证均值，选定{name}（{chosen['mean']:.4g}，"
-                f"折间 SD {chosen['sd']:.4g}）：{stability}{margin}"
-                "该选择仅依据共享划分上的验证分数，不作测试集假设检验或 p 值推断。")
-    return (f"Selection used mean development {metric} ({better}): {name} "
-            f"({chosen['mean']:.4g}, between-fold SD {chosen['sd']:.4g}). {stability}{margin}"
-            "The choice rests on shared-split validation scores, not a held-out hypothesis test.")
+        return (f"证据：主指标 {metric}（{better}）上，{name} 验证均值 {chosen['mean']:.4g}、"
+                f"折间 SD {chosen['sd']:.4g}。{stability}{margin}")
+    return (f"Evidence: on primary {metric} ({better}), {name} had mean {chosen['mean']:.4g} and "
+            f"between-fold SD {chosen['sd']:.4g}. {stability}{margin}")
+
+
+def selection_interpretation(s, zh):
+    """What the selection evidence does and does not mean."""
+    if zh:
+        return ("阐释：该选择只回答「在本次共享划分与预指定主指标下何者更好」，"
+                "不是测试集假设检验，也不声称跨样本或因果意义上的普遍最优。")
+    return ("Interpretation: selection answers which candidate is better under this shared split and "
+            "prespecified primary metric; it is not a held-out hypothesis test and does not claim "
+            "universal or causal superiority.")
+
+
+def selection_rationale(s, zh):
+    """Claim + evidence + interpretation for model selection (joined for compact call sites)."""
+    parts = [selection_claim(s, zh), selection_evidence(s, zh), selection_interpretation(s, zh)]
+    return "".join(p for p in parts if p)
 
 
 def model_result_paragraphs(row, s, fold_scores, search_params, zh):
-    """Technical prose for one successfully validated model (not a summary-only row)."""
+    """Per-model section: claim → evidence → interpretation."""
     tag = row["model"]
     name = model_name(tag, zh)
     standing = model_standing(row, s)
     role = {
         "selected": ("最终选定模型", "selected model"),
         "sole": ("最终选定模型", "selected model"),
-        "near": ("接近选定的候选模型", "near-selected candidate"),
-        "weaker": ("弱于选定的候选模型", "weaker candidate"),
-        "clearly_weaker": ("明显更差的候选模型", "clearly weaker candidate"),
+        "near": ("接近选定的候选", "near-selected candidate"),
+        "weaker": ("弱于选定的候选", "weaker candidate"),
+        "clearly_weaker": ("明显更差的候选", "clearly weaker candidate"),
     }[standing][0 if zh else 1]
     folds = ", ".join(f"{v:.4g}" for v in fold_scores) if fold_scores else ("无" if zh else "none")
     lines = []
+    # Claim
+    if zh:
+        lines.append(f"主张：{name}（标识 {tag}）在本次比较中的角色是{role}。")
+    else:
+        lines.append(f"Claim: {name} (id {tag}) stands as the {role} in this comparison.")
+    # Evidence
     if zh:
         lines.append(
-            f"{name}（标识 {tag}）为本次运行的{role}。"
-            f"在共享的 {row['folds']} 折开发集验证中，{s['metric']} 均值为 {row['mean']:.4g}，"
+            f"证据：在共享的 {row['folds']} 折开发集验证中，{s['metric']} 均值为 {row['mean']:.4g}，"
             f"折间样本标准差为 {row['sd']:.4g}；各折得分依次为 {folds}。"
         )
     else:
         lines.append(
-            f"{name} (id {tag}) is the {role}. "
-            f"Across {row['folds']} shared development folds, mean {s['metric']} was {row['mean']:.4g} "
+            f"Evidence: across {row['folds']} shared development folds, mean {s['metric']} was {row['mean']:.4g} "
             f"with between-fold sample SD {row['sd']:.4g}; fold scores were {folds}."
         )
+    if search_params:
+        lines.append(("证据（续）：参数搜索采用配置 " if zh else "Evidence (continued): search configuration ") +
+                     json.dumps(search_params, ensure_ascii=not zh) + ("。" if zh else "."))
     chosen = selected_comparison_row(s)
+    # Interpretation (and comparative evidence for the selected model)
     if standing in ("selected", "sole"):
-        rationale = selection_rationale(s, zh)
-        if rationale:
-            lines.append(rationale)
+        if len(s.get("comparison") or []) > 1:
+            lines.append(selection_evidence(s, zh))
+        lines.append(selection_interpretation(s, zh))
+        scores = "; ".join(
+            f"{k}={v:.4g}" if v is not None else f"{k}=undefined"
+            for k, v in s["test_metrics"].items())
+        if zh:
+            lines.append(
+                f"阐释（测试）：仅该模型在留出测试集上完成正式评价（n={s['test_n']}）：{scores}。"
+                "测试数字用于评价已选配置，不得用来在候选间二次挑选。"
+            )
+        else:
+            lines.append(
+                f"Interpretation (test): only this model received formal held-out evaluation "
+                f"(n={s['test_n']}): {scores}. Test figures evaluate the chosen configuration and "
+                "must not re-rank candidates."
+            )
     elif chosen is not None:
         gap = relative_validation_gap(row["mean"], chosen["mean"], s["direction"])
         chosen_name = model_name(chosen["model"], zh)
         if zh:
             if standing == "near":
                 lines.append(
-                    f"相对选定模型{chosen_name}（验证 {s['metric']}={chosen['mean']:.4g}），"
-                    f"本模型差距约 {gap:.1%}，尚属接近；若更重视折间稳定性或实现成本，可在开发集内再比较，"
-                    "但不得用本次测试集重新排序。"
+                    f"阐释：相对选定模型 {chosen_name}（验证 {s['metric']}={chosen['mean']:.4g}），"
+                    f"差距约 {gap:.1%}，尚属接近；接近不等于可互换，亦不得用本次测试集重新排序。"
                 )
             elif standing == "clearly_weaker":
                 lines.append(
-                    f"相对选定模型{chosen_name}（验证 {s['metric']}={chosen['mean']:.4g}），"
-                    f"本模型主指标差距约 {gap:.1%}，属于明显更差的一侧；在当前验证设计下不宜作为首选替代。"
+                    f"阐释：相对选定模型 {chosen_name}（验证 {s['metric']}={chosen['mean']:.4g}），"
+                    f"主指标差距约 {gap:.1%}，属于明显更差一侧；在当前验证设计下不宜作为首选替代。"
                 )
             else:
                 lines.append(
-                    f"相对选定模型{chosen_name}（验证 {s['metric']}={chosen['mean']:.4g}），"
-                    f"本模型主指标差距约 {gap:.1%}，弱于选定配置；报告保留其验证数字供对照，不作测试集补评。"
+                    f"阐释：相对选定模型 {chosen_name}（验证 {s['metric']}={chosen['mean']:.4g}），"
+                    f"主指标差距约 {gap:.1%}，弱于选定；分节保留验证数字供对照，不作测试集补评。"
                 )
         else:
             if standing == "near":
                 lines.append(
-                    f"Relative to selected {chosen_name} (CV {s['metric']}={chosen['mean']:.4g}), "
-                    f"the gap is about {gap:.1%} and remains near. Further development-set checks of stability "
-                    "or implementation cost are allowed; do not re-rank on this test set."
+                    f"Interpretation: relative to selected {chosen_name} "
+                    f"(CV {s['metric']}={chosen['mean']:.4g}), the gap is about {gap:.1%} (near). "
+                    "Near does not mean interchangeable; do not re-rank on this test set."
                 )
             elif standing == "clearly_weaker":
                 lines.append(
-                    f"Relative to selected {chosen_name} (CV {s['metric']}={chosen['mean']:.4g}), "
-                    f"the primary-metric gap is about {gap:.1%}, placing this candidate clearly weaker "
-                    "under the present validation design."
+                    f"Interpretation: relative to selected {chosen_name} "
+                    f"(CV {s['metric']}={chosen['mean']:.4g}), the gap is about {gap:.1%}, "
+                    "placing this candidate clearly weaker under the present design."
                 )
             else:
                 lines.append(
-                    f"Relative to selected {chosen_name} (CV {s['metric']}={chosen['mean']:.4g}), "
-                    f"the gap is about {gap:.1%}. Validation figures are retained for contrast; "
-                    "no held-out re-evaluation is performed."
+                    f"Interpretation: relative to selected {chosen_name} "
+                    f"(CV {s['metric']}={chosen['mean']:.4g}), the gap is about {gap:.1%}. "
+                    "Validation figures are retained for contrast without held-out re-evaluation."
                 )
-    if search_params:
-        lines.append(("该模型在参数搜索中采用的配置为：" if zh else "Search configuration: ") +
-                     json.dumps(search_params, ensure_ascii=not zh) + ("。" if zh else "."))
-    if standing in ("selected", "sole"):
-        scores = "; ".join(
-            f"{k}={v:.4g}" if v is not None else f"{k}=undefined"
-            for k, v in s["test_metrics"].items())
-        if zh:
-            lines.append(
-                f"仅该模型在留出测试集上完成正式评价（n={s['test_n']}）：{scores}。"
-                "其余候选保留验证表现，不在同一测试集上重复挑选。"
-            )
-        else:
-            lines.append(
-                f"Only this model received formal held-out evaluation (n={s['test_n']}): {scores}. "
-                "Other candidates retain validation metrics and are not re-ranked on the test set."
-            )
     else:
         lines.append(
-            "该候选仅报告开发集验证表现；留出测试集专用于评价最终选定模型，"
-            "以避免依据测试结果在候选间二次选择。" if zh else
-            "This candidate reports development validation only; the holdout evaluates the selected model "
-            "to avoid test-driven re-ranking among candidates."
+            "阐释：该候选仅报告开发集验证；留出测试专用于最终选定模型。" if zh else
+            "Interpretation: this candidate reports development validation only; the holdout evaluates the selected model."
         )
     return lines
 
 
 def abstract(s, zh):
+    """Abstract as claim → evidence → interpretation (problem/method folded into claim context)."""
     key = primary_metric(s)
     title = metric_explanation(key, None, zh)[0]
     value = s['test_metrics'].get(key)
@@ -307,21 +338,23 @@ def abstract(s, zh):
     source = ('外部测试集' if s['external_test'] else '内部留出测试集') if zh else (
         'external test set' if s['external_test'] else 'internal holdout')
     design = {'random': ('随机', 'random'), 'group': ('分组', 'grouped'), 'time': ('时间', 'temporal')}[s['split']][0 if zh else 1]
-    rationale = selection_rationale(s, zh)
+    name = model_name(s['selected_model'], zh)
+    claim = selection_claim(s, zh)
+    evidence = selection_evidence(s, zh)
     if zh:
-        body = (f"以 {s['target']} 为预测结局，纳入 {s['feature_n']} 项特征。开发集含 {s['development_n']} 条记录，"
-                f"采用{design}设计的 {s['cv_folds']} 折交叉验证，以{title}选择模型；最终选定{model_name(s['selected_model'], zh)}。"
-                f"{rationale}"
-                f"在 {s['test_n']} 条记录组成的{source}上，{title}为 {score}。"
-                "结果阐释测试表现相对基线的含义与局限；讨论综合何者更优、证据强度与使用边界。")
-    else:
-        body = (f"The analysis predicts {s['target']} from {s['feature_n']} features. Model selection used {title} in "
-                f"{s['cv_folds']}-fold {design} cross-validation on {s['development_n']} development records, selecting "
-                f"{model_name(s['selected_model'], zh)}. {rationale}"
-                f"On the {source} of {s['test_n']} records, {title} was {score}. "
-                "Results interpret test performance against the baseline; discussion weighs which model is preferable, "
-                "evidence strength and scope of use.")
-    return body
+        setup = (f"问题与方法：以 {s['target']} 为预测结局，纳入 {s['feature_n']} 项特征；"
+                 f"开发集 {s['development_n']} 条，{design}设计 {s['cv_folds']} 折交叉验证，"
+                 f"以{title}比较候选。")
+        test = (f"测试证据：在 {s['test_n']} 条记录的{source}上，选定模型 {name} 的{title}为 {score}。")
+        closing = ("阐释：下文结果说明该测试表现相对基线意味着什么；讨论综合何者更优、证据强度与不可外推边界。"
+                   "不作假设检验推断或因果断言。")
+        return setup + claim + evidence + test + closing
+    setup = (f"Problem and method: predict {s['target']} from {s['feature_n']} features on "
+             f"{s['development_n']} development records using {s['cv_folds']}-fold {design} CV with {title}.")
+    test = (f"Test evidence: on the {source} of {s['test_n']} records, selected {name} had {title}={score}.")
+    closing = ("Interpretation: results explain the baseline comparison; discussion weighs preference, "
+               "evidence strength and non-extrapolation. No hypothesis-test or causal claims.")
+    return " ".join(p for p in (setup, claim, evidence, test, closing) if p)
 
 
 def validation_methods(s, zh):
@@ -344,59 +377,71 @@ def validation_methods(s, zh):
 
 
 def result_summary(s, intervals, zh):
-    """Interpret the primary comparison without a significance or utility threshold."""
+    """Primary test result as claim → evidence → interpretation (no significance threshold)."""
     key = primary_metric(s)
     label = metric_explanation(key, None, zh)[0]
     spec = METRICS.get(key)
     meaning = (spec[1] if zh else spec[3]) if spec else ""
     row = next((r for r in intervals if r['metric'] == key), None)
+    name = model_name(s.get("selected_model", ""), zh) if s.get("selected_model") else (
+        "选定模型" if zh else "the selected model")
     if row is None or row.get('estimate') is None:
-        return (f"测试集的{label}未能计算，现有结果不足以评价主要终点。" if zh else
-                f"Test {label} is undefined, preventing evaluation of the primary endpoint.")
+        return (f"主张：测试集{label}未能计算，现有证据不足以评价主要终点。" if zh else
+                f"Claim: test {label} is undefined, so the primary endpoint cannot be evaluated.")
     estimate, baseline, gain = row['estimate'], row.get('baseline'), row.get('gain')
-    text = f"测试集{label}为 {estimate:.4g}" if zh else f"Test {label} was {estimate:.4g}"
+    # Claim
+    if baseline is not None and gain is not None:
+        if zh:
+            if gain > 0:
+                claim = f"主张：在本测试样本上，{name} 相对简单基线表现出可观测改善（主指标 {label}）。"
+            elif gain < 0:
+                claim = f"主张：在本测试样本上，{name} 未表现出相对简单基线的改善（主指标 {label}）。"
+            else:
+                claim = f"主张：在本测试样本上，{name} 与简单基线在主指标 {label} 上持平。"
+        else:
+            if gain > 0:
+                claim = f"Claim: on this test sample, {name} shows an observable improvement over the dummy baseline on {label}."
+            elif gain < 0:
+                claim = f"Claim: on this test sample, {name} does not improve on the dummy baseline on {label}."
+            else:
+                claim = f"Claim: on this test sample, {name} matches the dummy baseline on {label}."
+    else:
+        claim = (f"主张：选定模型在测试集上的主终点为 {label}={estimate:.4g}。" if zh else
+                 f"Claim: the selected model's primary test endpoint is {label}={estimate:.4g}.")
+    # Evidence
+    evidence = (f"证据：测试集{label}点估计为 {estimate:.4g}" if zh else
+                f"Evidence: test {label} point estimate was {estimate:.4g}")
     if row.get('lower') is not None and row.get('upper') is not None:
-        text += f" (95% CI [{row['lower']:.4g}, {row['upper']:.4g}])"
-    text += '。' if zh else '. '
+        evidence += f" (95% CI [{row['lower']:.4g}, {row['upper']:.4g}])"
+    evidence += '。' if zh else '. '
     if baseline is not None and gain is not None:
         relation = ('高于' if gain > 0 else '低于' if gain < 0 else '等于') if s['direction'] == 'higher' else (
             '低于' if gain > 0 else '高于' if gain < 0 else '等于')
-        text += (f"基线为 {baseline:.4g}，模型指标{relation}基线，按指标优劣方向计算的差值为 {gain:.4g}。" if zh else
-                 f"The baseline was {baseline:.4g}; the difference oriented to favor improvement was {gain:.4g}. ")
+        evidence += (f"基线为 {baseline:.4g}，模型指标{relation}基线，按优劣方向的差值为 {gain:.4g}。" if zh else
+                     f"Baseline was {baseline:.4g}; improvement-oriented difference was {gain:.4g}. ")
         lo, hi = row.get('gain_lower'), row.get('gain_upper')
         if lo is not None and hi is not None:
-            text += (f"配对差值的 95% CI 为 [{lo:.4g}, {hi:.4g}]，" if zh else f"The paired 95% CI was [{lo:.4g}, {hi:.4g}], ")
-            text += (("区间包含零，差值方向仍有不确定性。" if lo <= 0 <= hi else "区间位于零以上。" if lo > 0 else "区间位于零以下。") if zh else
-                     ("including zero, so the direction remains uncertain. " if lo <= 0 <= hi else "lying above zero. " if lo > 0 else "lying below zero. "))
-        if zh:
-            if gain > 0:
-                text += ("该正增益表示在本测试样本上，选定模型相对不使用预测变量的简单规则有可观测改善；"
-                         "改善幅度是否满足业务容许误差需预先规定，不能由本报告代为裁定。")
-            elif gain < 0:
-                text += ("负增益表示在本测试样本上未观察到相对简单基线的改善；此时更应检查划分、类别构成或特征是否携带可用信号。")
-            else:
-                text += "与基线持平意味着在本指标上未见超出简单规则的增益。"
-        else:
-            if gain > 0:
-                text += ("The positive gain means the selected model improved on a predictor-free rule in this test sample; "
-                         "whether the magnitude meets an application tolerance must be specified in advance.")
-            elif gain < 0:
-                text += ("The negative gain means no improvement over the simple baseline was observed here; "
-                         "inspect the split, class mix or whether features carry usable signal.")
-            else:
-                text += "Parity with the baseline means no gain beyond the simple rule on this metric."
+            evidence += (f"配对差值 95% CI 为 [{lo:.4g}, {hi:.4g}]，" if zh else
+                         f"Paired 95% CI was [{lo:.4g}, {hi:.4g}], ")
+            evidence += (("区间包含零，方向仍有不确定性。" if lo <= 0 <= hi else
+                          "区间位于零以上。" if lo > 0 else "区间位于零以下。") if zh else
+                         ("including zero (direction uncertain). " if lo <= 0 <= hi else
+                          "lying above zero. " if lo > 0 else "lying below zero. "))
     elif key == 'pearson_r':
-        text += ("常量预测基线的 Pearson 相关系数无法定义，因而未计算该指标的基线差值。" if zh else
-                 "Pearson correlation is undefined for the constant baseline, so no baseline difference is calculated for this metric.")
+        evidence += ("常量预测基线的 Pearson 相关系数无法定义，故未计算该指标的基线差值。" if zh else
+                     "Pearson correlation is undefined for the constant baseline, so no baseline difference is reported.")
+    # Interpretation
     if zh:
-        text += (f"{label}的含义是：{meaning}"
-                 "点估计与区间描述的是固定已选模型在本测试样本上的表现，不能外推为跨机构或前瞻场景的保证，"
-                 "也不构成因果结论或假设检验推断。")
+        interp = (f"阐释：{label}的含义是：{meaning}"
+                  "增益是否「够用」取决于预先规定的容许误差，本报告不作裁定；"
+                  "点估计与区间只描述固定已选模型在本测试样本上的表现，不能外推为跨机构或前瞻保证，"
+                  "也不构成因果或假设检验推断。")
     else:
-        text += (f"{label}: {meaning} "
-                 "Point estimates and intervals describe this fitted model on this test sample; they do not guarantee "
-                 "cross-site or prospective performance, and they are neither causal claims nor hypothesis tests.")
-    return text
+        interp = (f"Interpretation: {label}: {meaning} "
+                  "Whether the gain is 'enough' requires a prespecified tolerance; "
+                  "estimates describe this fitted model on this test sample only—not cross-site guarantees, "
+                  "causation, or hypothesis tests.")
+    return claim + evidence + interp
 
 
 def uncertainty_description(interval, zh):
@@ -426,12 +471,15 @@ def uncertainty_description(interval, zh):
 
 
 def discussion(s, analysis, zh):
+    """Discussion: preference claim → supporting evidence → scope interpretation."""
     lines = []
-    # Comparative judgment first: which model is preferable and how strong the evidence is.
     if s.get("selected_model") and s.get("comparison") is not None:
-        rationale = selection_rationale(s, zh)
-        if rationale:
-            lines.append(rationale)
+        claim = selection_claim(s, zh)
+        if claim:
+            lines.append(claim)
+        evidence = selection_evidence(s, zh)
+        if evidence:
+            lines.append(evidence)
         comparison = s.get("comparison") or []
         if len(comparison) > 1:
             standings = [(model_role_short(row, s, zh), model_name(row["model"], zh))
@@ -445,11 +493,11 @@ def discussion(s, analysis, zh):
                 if weak:
                     bits.append("相对 " + "、".join(weak) + " 优势更清楚")
                 if bits:
-                    lines.append("综合验证差距：" + "；".join(bits) +
-                                 "。接近并不等于可互换，仍以预先指定的主指标均值及折间表现为准。")
+                    lines.append("证据（候选对照）：" + "；".join(bits) +
+                                 "。接近并不等于可互换，仍以预指定主指标与折间表现为准。")
                 else:
-                    lines.append("其余候选介于接近与明显更差之间：弱于选定，但差距未达到大幅度阈值；"
-                                 "对照分节保留其验证数字，避免只读总表。")
+                    lines.append("证据（候选对照）：其余候选弱于选定但未跨过大幅度阈值；"
+                                 "分节保留验证数字，避免只读总表。")
             else:
                 bits = []
                 if near:
@@ -457,13 +505,11 @@ def discussion(s, analysis, zh):
                 if weak:
                     bits.append("clearly ahead of " + ", ".join(weak))
                 if bits:
-                    lines.append(
-                        "Across candidates the selected model is " + " and ".join(bits) +
-                        ". Near does not mean interchangeable; keep the prespecified primary metric and fold pattern.")
+                    lines.append("Evidence (candidates): selected model is " + " and ".join(bits) +
+                                 ". Near does not mean interchangeable.")
                 else:
-                    lines.append(
-                        "Other candidates are weaker than the selected model without crossing the large-gap threshold; "
-                        "per-model sections retain their validation figures so a table is not the sole contrast.")
+                    lines.append("Evidence (candidates): others are weaker without a large-gap threshold; "
+                                 "per-model sections retain validation figures.")
         if s.get("metric") is not None:
             key = primary_metric(s)
             test_value = (s.get("test_metrics") or {}).get(key)
@@ -471,41 +517,50 @@ def discussion(s, analysis, zh):
                 label = metric_explanation(key, None, zh)[0]
                 if zh:
                     lines.append(
-                        f"测试集上选定模型的{label}为 {test_value:.4g}（n={s['test_n']}）。"
-                        "该数字用于评价已选配置，不能用来在候选间二次挑选；"
-                        "证据强度受样本量、划分设计及验证边际共同约束，不能解读为普遍最优或因果效应。"
+                        f"证据（测试）：选定模型{label}={test_value:.4g}（n={s['test_n']}），"
+                        "只用于评价已选配置，不能二次挑选候选。"
                     )
                 else:
                     lines.append(
-                        f"On the test set the selected model's {label} was {test_value:.4g} (n={s['test_n']}). "
-                        "That figure evaluates the chosen configuration and must not re-rank candidates; "
-                        "evidence strength is bounded by sample size, split design and validation margin, "
-                        "not a claim of universal optimality or causation."
+                        f"Evidence (test): selected {label}={test_value:.4g} (n={s['test_n']}), "
+                        "evaluating the chosen configuration only—not for re-ranking."
                     )
+        interp = selection_interpretation(s, zh)
+        if interp:
+            lines.append(interp)
+        if zh:
+            lines.append(
+                f"阐释（证据强度）：测试集含 {s['test_n']} 条；最优验证分数存在选择偏倚；"
+                "证据强度受样本量、划分设计与验证边际共同约束，不能解读为普遍最优或因果效应。"
+                "实际应用需预先明确容许误差或误判成本。"
+            )
+        else:
+            lines.append(
+                f"Interpretation (strength): test n={s['test_n']}; the winning validation score is "
+                "selection-biased; strength is bounded by sample size, split design and margin—"
+                "not universal optimality or causation. Practical use needs prespecified tolerances."
+            )
     if s.get('external_test'):
-        lines.append("测试使用另行提供的数据，其结果反映该测试样本上的预测表现。跨机构或前瞻性适用性仍取决于数据来源与采集设计。" if zh else
-                     "Evaluation used separately supplied test data. Transfer across institutions or prospective use depends on the provenance and collection design of those data.")
+        lines.append("边界：测试使用另行提供的数据，结果反映该测试样本；跨机构或前瞻适用性取决于来源与采集设计。" if zh else
+                     "Scope: separately supplied test data describe that sample; transfer depends on provenance.")
     else:
-        lines.append("评价基于内部留出样本，结论适用于本次数据来源与划分条件；跨机构或前瞻性应用尚需相应的外部验证。" if zh else
-                     "Evaluation used an internal holdout, limiting the conclusion to this data source and split. Cross-institutional or prospective use requires corresponding external validation.")
-    lines.append((f"测试集包含 {s['test_n']} 条记录。模型选择依据开发集验证分数，最优验证分数存在选择偏倚；"
-                  "测试集结果用于评价选定模型。实际应用还需预先明确容许误差或误判成本。" if zh else
-                  f"The test set contains {s['test_n']} records. Development scores selected the model, making the winning validation score subject to selection bias. Test results evaluate the selected model; practical use requires prespecified error tolerances or misclassification costs."))
-    if s['split'] == 'group':
-        lines.append("分组隔离减少了同组记录同时进入训练与评价造成的乐观偏差，但组间表现仍受各组样本量与构成影响。" if zh else
-                     "Group separation reduces optimism from shared-group records, while between-group performance also depends on support and composition.")
-    elif s['split'] == 'time':
-        lines.append("时间验证评价较早记录对较晚记录的预测能力。相邻时间块可能存在依赖，当前流程未计算将记录视为独立观测的 bootstrap 区间。" if zh else
-                     "Temporal validation evaluates prediction of later observations from earlier records. Adjacent blocks may be dependent; this workflow omits bootstrap intervals that would treat records as independent.")
-    lines.append("置换重要性反映固定模型对输入的预测依赖，相关特征可能相互替代；该分析不估计因果效应或效应方向。" if zh else
-                 "Permutation importance measures a fitted model's predictive reliance. Correlated inputs can substitute for one another; the analysis estimates neither causal effects nor their direction.")
-    if s['split'] != 'random':
-        lines.append("重要性分析逐行置换特征，可能破坏组内或时间依赖，因此将其作为描述性诊断。" if zh else
-                     "Row-wise feature permutations can disrupt group or temporal dependence, so importance is treated as descriptive.")
-    lines.append("预处理在训练折内拟合，但输入构建阶段若已使用全体样本或未来信息，仍可能产生信息泄漏；研究解释依赖于输入数据的来源记录。" if zh else
-                 "Preprocessing fits within training folds, but full-sample or future information used upstream can still introduce leakage. Interpretation depends on the provenance of the input features.")
-    lines.append("后续分析可在开发集内比较正则化强度、特征组合或类别处理方案，并记录对应的验证结果。若方案依据本次测试诊断提出，修改后的模型需使用新的独立测试数据评价。" if zh else
-                 "Further development can compare regularization, feature sets or class-handling strategies and record validation outcomes. Changes motivated by these test diagnostics require new independent test data for evaluation.")
+        lines.append("边界：评价基于内部留出，结论限于本次数据来源与划分；跨机构或前瞻应用需外部验证。" if zh else
+                     "Scope: an internal holdout limits conclusions to this source and split; external validation is required for transfer.")
+    if s.get('split') == 'group':
+        lines.append("边界（分组）：组隔离减少同组泄漏乐观，但组间表现仍受样本量与构成影响。" if zh else
+                     "Scope (group): group separation reduces shared-group optimism; between-group performance still depends on support.")
+    elif s.get('split') == 'time':
+        lines.append("边界（时间）：前向验证评价由早到晚的预测；相邻块可能依赖，本流程不做将记录视为独立的 bootstrap 区间。" if zh else
+                     "Scope (time): forward validation predicts later from earlier; adjacent blocks may depend, so row bootstrap is omitted.")
+    lines.append("边界（机制）：置换重要性描述预测依赖而非因果；相关特征可相互替代。" if zh else
+                 "Scope (mechanism): permutation importance is predictive reliance, not a causal effect; correlated inputs can substitute.")
+    if s.get('split') and s['split'] != 'random':
+        lines.append("边界（诊断）：逐行置换可能破坏组/时间依赖，重要性仅作描述性诊断。" if zh else
+                     "Scope (diagnostics): row-wise permutations can disrupt group/time dependence; treat importance as descriptive.")
+    lines.append("边界（数据）：折内预处理不能消除上游全样本或未来信息泄漏；解释依赖输入来源记录。" if zh else
+                 "Scope (data): fold-local preprocessing cannot undo upstream leakage; interpretation depends on feature provenance.")
+    lines.append("后续：可在开发集比较正则化、特征或类别处理并记录验证结果；若改动由本次测试诊断驱动，须用新的独立测试数据评价。" if zh else
+                 "Next steps: compare regularization, features or class handling on development data; test-motivated changes need new independent test data.")
     return lines
 
 

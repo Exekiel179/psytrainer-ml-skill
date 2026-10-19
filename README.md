@@ -13,9 +13,11 @@ This Skill combines agent instructions with local Python tools for training,
 prediction, scientific figures, and Word reports. The Pipeline supports
 9 classification and 12 regression algorithms, with integrated validation,
 preprocessing and reporting.
-Reports follow a technical abstract/methods/results/discussion layout. Each
-successfully trained model has its own results section; large runs also write
-per-model files under `reports/`. Appendix summary tables are comparative only.
+Reports follow a technical abstract/methods/results/discussion layout with
+claim → evidence → interpretation prose so readers see which model is better
+and why (not tables alone). Each successfully trained model has its own results
+section; large runs also write per-model files under `reports/`. Appendix summary
+tables are comparative only.
 It also provides bounded grid/random search, forward/F-threshold selection,
 seven resampling methods, domain model presets and checked CV resume.
 
@@ -126,9 +128,8 @@ with `ready: true` records that the environment exists, not that every package i
 installed. Every task invocation checks current dependency versions and imports.
 Satisfied dependencies require no network downloads.
 
-Default Pipeline setup does not need a PsyTrainer wheel. For historical INI
-compatibility only, place a single `PsyTrainer-*.whl` under `vendor/` and rerun
-setup (no CLI flags; see [setup](references/setup.md)).
+This Skill is Pipeline-only (`scripts/pipeline_train.py`); there is no optional
+PsyTrainer wheel / `vendor/` / legacy INI runtime.
 
 Default training installs core modeling, plotting and Word report libraries.
 LightGBM, XGBoost and CatBoost are installed only when selected; resampling adds

@@ -38,50 +38,21 @@ def emit(value):
 
 
 def capabilities(legacy=False):
-    if not legacy:
-        from model_registry import MODELS
-        from pipeline_train import SCORERS, DEFAULT_MODELS
-        from pipeline_options import SAMPLERS, DOMAIN_MODELS
-        return {"backend": "local-registry/v1", **{task: list(models) for task, models in MODELS.items()},
-                "metrics": {task: list(metrics) for task, metrics in SCORERS.items()},
-                "defaults": DEFAULT_MODELS, "model_parameters": "pipeline_train.py train --model-params FILE.json",
-                "search": ["grid", "random"], "search_space": "--search-space FILE.json",
-                "feature_filters": ["minmax", "kbest", "f-threshold", "forward", "pca"],
-                "resamplers": list(SAMPLERS), "domain_presets": DOMAIN_MODELS,
-                "resume": "--resume reuses CV folds with identical data/config/code/versions",
-                "legacy": "Historical INI only: place one PsyTrainer-*.whl under vendor/, rerun install_runtime.py, use runtime-legacy.json python; set PSYTRAINER_LEGACY=1 to query this catalog"}
-    # Keep original INI capabilities separate from Pipeline scoring and preprocessing.
-    with contextlib.redirect_stdout(io.StringIO()):
-        try:
-            from ccpl_training_models.model.model_factory import ModelFactory
-        except ImportError as exc:
-            raise RuntimeError(
-                "Historical INI engine requires an optional PsyTrainer wheel "
-                "(place one PsyTrainer-*.whl under vendor/), "
-                "then runtime-legacy.json python; new analyses use pipeline_train.py"
-            ) from exc
-        from ccpl_training_models.feature.ff_factory import FFFactory
-        from ccpl_training_models.sampler.sampler_factory import SamplerFactory
-        from ccpl_training_models.util.scoring_utils import SCORINGS_CLASSIFIER, SCORINGS_DEFAULT
-        factory = ModelFactory("general")
-    return {
-        "classification": factory.get_all_model_tags(0),
-        "regression": factory.get_all_model_tags(1),
-        "feature_filters": FFFactory.get_all_ff_tags(),
-        "resamplers": SamplerFactory.get_all_sampler_tags(),
-        "metrics": {"classification": [s.name for s in SCORINGS_CLASSIFIER],
-                    "regression": [s.name for s in SCORINGS_DEFAULT]},
-        "presets": PRESETS,
-        "pipeline_runner": {"script": "scripts/pipeline_train.py",
-                            "reference": "references/pipeline.md",
-                            "supports": ["fold-local preprocessing", "group/time CV", "held-out evaluation",
-                                         "permutation importance", "figures", "Word reports"],
-                            "note": "The following limits describe the legacy INI runner only."},
-        "limits": ["numeric tabular features only", "no grouped or temporal CV in this wrapper",
-                   "feature filtering and resampling happen before CV",
-                   "vendor random folds are not reproducibly seeded",
-                   "vendor r2 scorer negates R2; do not use it for model selection"],
-    }
+    if legacy:
+        raise RuntimeError(
+            "Historical INI / optional PsyTrainer wheel support was removed; "
+            "use scripts/pipeline_train.py (Pipeline only)."
+        )
+    from model_registry import MODELS
+    from pipeline_train import SCORERS, DEFAULT_MODELS
+    from pipeline_options import SAMPLERS, DOMAIN_MODELS
+    return {"backend": "local-registry/v1", **{task: list(models) for task, models in MODELS.items()},
+            "metrics": {task: list(metrics) for task, metrics in SCORERS.items()},
+            "defaults": DEFAULT_MODELS, "model_parameters": "pipeline_train.py train --model-params FILE.json",
+            "search": ["grid", "random"], "search_space": "--search-space FILE.json",
+            "feature_filters": ["minmax", "kbest", "f-threshold", "forward", "pca"],
+            "resamplers": list(SAMPLERS), "domain_presets": DOMAIN_MODELS,
+            "resume": "--resume reuses CV folds with identical data/config/code/versions"}
 
 
 def inspect_data(features_path, labels_path, targets, task, cv):
@@ -294,8 +265,7 @@ def execute(args):
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     commands = result.add_subparsers(dest="operation", required=True)
-    commands.add_parser("capabilities", help="List Pipeline algorithms and metrics "
-                        "(set PSYTRAINER_LEGACY=1 to query the optional historical INI engine)")
+    commands.add_parser("capabilities", help="List Pipeline algorithms and metrics")
     for name in ("inspect", "configure"):
         sub = commands.add_parser(name)
         sub.add_argument("--features", type=Path, required=True)
