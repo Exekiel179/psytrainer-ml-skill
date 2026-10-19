@@ -154,17 +154,20 @@ if __name__ == "__main__":
 
 
 class FigureTextTests(unittest.TestCase):
-    def test_chinese_reports_translate_figure_labels(self):
+    def test_figures_use_clear_english_labels(self):
         import matplotlib
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
         from pipeline_report import localize_figure
         fig, ax = plt.subplots()
         ax.set_xlabel("mae (lower is better)")
-        ax.set_ylabel("Observed class")
-        ax.set_title("a  Training versus validation")
-        localize_figure(fig, True)
-        self.assertEqual(ax.get_xlabel(), "MAE（越低越好）")
-        self.assertEqual(ax.get_ylabel(), "实际类别")
-        self.assertEqual(ax.get_title(loc="center") or ax.get_title(loc="left"), "a  训练与验证得分")
+        ax.set_ylabel("Residual (observed - predicted)")
+        ax.set_title("a  Where predictions fail")
+        ax.set_yticks([0], ["LRRegressor"])
+        localize_figure(fig)
+        self.assertEqual(ax.get_xlabel(), "MAE (lower is better)")
+        self.assertEqual(ax.get_ylabel(), "Residual (observed − predicted)")
+        self.assertEqual(ax.get_title(), "a  Confusion matrix (row-normalised)")
+        fig.canvas.draw()
+        self.assertEqual(ax.get_yticklabels()[0].get_text(), "Linear regression")
         plt.close(fig)

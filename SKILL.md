@@ -51,6 +51,8 @@ behavioural science, and any summary or rewrite you produce must keep it:
 - 95% CI = test-set bootstrap percentile interval; the baseline difference CI
   excluding 0 is what "outperforms the baseline" means. No p-values.
 - Regression conclusions state variance explained from R² ("可解释约 99% 的变异").
+- Figures are always in English (for international journals), with model display
+  names and real class names; report text follows `--language`.
 
 ## Report context
 
