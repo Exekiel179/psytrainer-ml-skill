@@ -259,6 +259,23 @@ def evaluate(model, x, y, task):
     return metrics, frame
 
 
+def describe_target(train_y, test_y, task, train_x, test_x):
+    """Descriptive statistics of the outcome and predictor completeness per partition."""
+    result = {}
+    for role, values, features in (("development", train_y, train_x), ("test", test_y, test_x)):
+        entry = {"n": int(len(values)),
+                 "complete_rows": float(features.notna().all(axis=1).mean()) if len(features) else None}
+        if task == "regression":
+            numeric = pd.to_numeric(values, errors="coerce").astype(float)
+            entry.update(mean=float(numeric.mean()), sd=float(numeric.std(ddof=1)) if len(numeric) > 1 else None,
+                         median=float(numeric.median()), min=float(numeric.min()), max=float(numeric.max()))
+        else:
+            counts = values.astype(str).value_counts()
+            entry["counts"] = {str(k): int(v) for k, v in counts.sort_index().items()}
+        result[role] = entry
+    return result
+
+
 def restore_labels(frame, classes):
     if classes is not None:
         frame = frame.copy()
@@ -353,6 +370,7 @@ def run(args):
         raise ValueError("development needs target variation; held-out test needs at least two samples")
     if args.task == "classification" and set(test_y) - set(train_y):
         raise ValueError("test contains classes absent from development data")
+    target_summary = describe_target(train_y, test_y, args.task, train_x, test_x)
     label_classes = None
     if args.task == "classification":
         encoder = LabelEncoder().fit(train_y)
@@ -538,6 +556,7 @@ def run(args):
                                     ("select_k", "scaler", "selection", "f_threshold", "forward_tol", "pca", "resample")}},
                "importance_repeats": args.repeats, "failures": failures, "warnings": warnings,
                "question": args.question, "language": args.language,
+               "target_summary": target_summary,
                "model_backend": "local-registry/v1", "model_parameters": parameters,
                "versions": software,
                "inputs": inputs,
@@ -546,7 +565,7 @@ def run(args):
                                         for k, v in best.named_steps["model"].get_params().items()}}
     write_json(output / "summary.json", summary)
     from pipeline_report import generate_report
-    generate_report(output)
+    generate_report(output, context=args.context)
     return {"status": "completed", "selected_model": selected, "test_metrics": metrics,
             "summary": str(output / "summary.json"), "report": str(output / "report.docx"),
             "analysis": str(output / "analysis.json"),
@@ -627,12 +646,16 @@ def parser():
                    help="Test percentile bootstrap repeats, 0 to disable; time designs omit intervals")
     t.add_argument("--language", choices=("zh", "en"), default="zh")
     t.add_argument("--question", default="")
+    t.add_argument("--context", type=Path,
+                   help="JSON report context: target_label, target_unit, tolerance, feature_labels, class_labels, background")
     pr = commands.add_parser("predict", help="Load only trusted local joblib files")
     pr.add_argument("--probabilities", action="store_true", help="Include class probabilities when supported")
     for name in ("features", "model", "output"):
         pr.add_argument(f"--{name}", type=Path, required=True)
-    r = commands.add_parser("report")
+    r = commands.add_parser("report", help="Regenerate figures and reports from saved results without retraining")
     r.add_argument("directory", type=Path)
+    r.add_argument("--context", type=Path, help="JSON report context saved as report-context.json for later regenerations")
+    r.add_argument("--language", choices=("zh", "en"), help="Override the run's report language")
     return p
 
 
@@ -648,8 +671,9 @@ def main(argv=None):
                 from runtime_dependencies import REPORT, ensure
                 ensure(REPORT)
             from pipeline_report import generate_report
-            generate_report(args.directory)
-            value = {"report": str((args.directory / "report.docx").resolve())}
+            generate_report(args.directory, context=args.context, language=args.language)
+            value = {"report": str((args.directory / "report.docx").resolve()),
+                     "markdown": str((args.directory / "report.md").resolve())}
         print(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")))
         return 0
     except Exception as exc:

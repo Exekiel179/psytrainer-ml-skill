@@ -13,11 +13,12 @@ This Skill combines agent instructions with local Python tools for training,
 prediction, scientific figures, and Word reports. The Pipeline supports
 9 classification and 12 regression algorithms, with integrated validation,
 preprocessing and reporting.
-Reports follow a technical abstract/methods/results/discussion layout with
-claim → evidence → interpretation prose so readers see which model is better
-and why (not tables alone). Each successfully trained model has its own results
-section; large runs also write per-model files under `reports/`. Appendix summary
-tables are comparative only.
+Reports are findings-first: a structured abstract and key findings answer the
+research question (do the features beat a feature-free baseline, by how much,
+through which predictors), followed by methods, results with embedded figures,
+a discussion of evidence strength and data issues triggered in this run, and
+next steps. Optional `--context ctx.json` adds variable meanings, units and an
+acceptable error; `report DIR --context ctx.json` regenerates without retraining.
 It also provides bounded grid/random search, forward/F-threshold selection,
 seven resampling methods, domain model presets and checked CV resume.
 

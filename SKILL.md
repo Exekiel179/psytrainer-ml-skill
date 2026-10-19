@@ -20,19 +20,35 @@ no optional PsyTrainer wheel / `vendor/` / legacy INI runtime.
 
 - Train: `"$PY" scripts/pipeline_train.py train --features X.csv --labels Y.csv --target score --task regression --output-dir outputs/run-01`.
 - Predict: `"$PY" scripts/pipeline_train.py predict --features new.csv --model outputs/run-01/pipeline.joblib --output outputs/predictions.csv`.
-- Regenerate figures/report without retraining: `"$PY" scripts/pipeline_train.py report outputs/run-01`.
+- Regenerate figures/report without retraining: `"$PY" scripts/pipeline_train.py report outputs/run-01 [--context ctx.json] [--language en]`.
 - Inspect uncertain inputs: `"$PY" scripts/ml.py inspect --features X.csv --labels Y.csv --task regression`.
 
 CSV first column: unique sample ID; feature/label IDs must match. Predictors are
 numeric; targets cannot be missing. Ask only about ambiguous task/target.
-Defaults: 20% holdout, 5-fold CV, two models, Chinese technical Word report
-(abstract / methods / results / discussion). Reports use claim → evidence →
-interpretation prose so readers see which model is better and why, not metric
-tables alone. Each successful model gets its own results section; with many
-models, also write `reports/<Model>.md` (+ `.docx`) indexed by the overview
-report. Appendix tables summarize; they are not the only model presentation.
+Defaults: 20% holdout, 5-fold CV, two models, Chinese technical Word report.
+The report is findings-first: a structured abstract (objective / methods / results /
+conclusion) and numbered key findings answer the research question, then methods,
+results (model comparison, test performance, error structure, predictor reliance,
+development/test comparability, strata), a discussion with evidence strength,
+triggered data issues, limitations and tailored next steps, and appendices
+(per-model fold results, metric definitions, figure-reading guide, reproducibility).
+With ≥4 successful models, per-model details go to `reports/<Model>.md` (+ `.docx`).
 Use `--task classification` for classes; honor chosen models/metrics. Add a known
 research question with `--question`.
+
+## Report context
+
+Reports read best when they know what the variables mean. When the user has said
+(or readily knows) the outcome's meaning or unit, predictor meanings, class
+meanings, or an acceptable prediction error, write a JSON file and pass
+`--context ctx.json` to `train` or `report`; it is saved as `report-context.json`
+and reused on later regenerations. Keys (all optional): `question`, `title`,
+`background`, `population`, `target_label`, `target_unit`, `tolerance` (positive,
+target units; reports the share of test records within it), `feature_labels`
+`{column: label}`, `class_labels` `{class: label}`. Only record what the user
+stated; never invent units, tolerances or meanings. If none is known, train
+without it and offer once to regenerate with context afterwards.
+
 For repeated subjects/sites use `--split group --metadata meta.csv --group-column subject`;
 for ordered observations use `--split time --metadata meta.csv --time-column time`.
 
@@ -43,11 +59,16 @@ Do not silently impute/recode or select models/features/thresholds from test
 results. Test-driven changes need new independent test data. Load only trusted
 joblib/pickle files. Diagnostics do not establish causality or significance.
 
-Start with CLI JSON; read `analysis.json` findings only for interpretation and
-log tails on failure. Report actual sample counts, metric, validation and failures.
-Link generated reports/figures; do not read full CSVs, scripts or reports by
-default. Scripts already write the technical report; no LLM rewrite is needed
-unless requested. Load only the relevant reference section:
+Start with CLI JSON. To tell the user the outcome, read only the `## 摘要` /
+`## Abstract` and `## 要点` / `## Key findings` sections at the top of `report.md`
+(they hold the verdict, key numbers and triggered issues) and relay them in a few
+sentences: whether the features predicted the outcome better than the baseline,
+the primary test metric with its interval, the leading predictors, and any
+flagged data issue. Read log tails only on failure. Link the generated
+reports/figures; do not read full CSVs, scripts or whole reports by default. The
+scripts already write the full report; no LLM rewrite is needed unless requested,
+and any rewrite must keep the measured numbers and stated limits. Load only the
+relevant reference section:
 
 - [Setup](references/setup.md): Pipeline runtime (`.venv` / `runtime.json`).
 - [Pipeline](references/pipeline.md): external tests, preprocessing, bounded search,

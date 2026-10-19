@@ -158,30 +158,61 @@ The command returns one compact JSON result. Full artifacts remain on disk:
 | `strata-metrics.csv`, `strata-membership.csv` | Group or ordered time-block performance with counts and auditable membership |
 | `importance.csv`, `importance-repeats.csv` | Test permutation importance, all features and repeats |
 | `figures/` | 180 mm figures in PDF, editable SVG and 600 dpi PNG; caption/source manifest |
-| `report.docx`, `report.md` | Technical report: abstract, methods, per-model results, figures, discussion, appendices |
-| `reports/<Model>.md`, `.docx` | Per-model results when ≥4 models succeed (indexed by the overview report) |
+| `report.docx`, `report.md` | Findings-first technical report (same content in both formats) |
+| `reports/<Model>.md`, `.docx` | Per-model fold results when ≥4 models succeed (indexed in Appendix A) |
+| `report-context.json` | Optional researcher-supplied variable meanings, units and tolerance |
 | `run.log` | Detailed model output and warnings |
 
 Use `--language zh` (default) or `en`; `--question "..."` adds the actual research
 question. Reports are deterministic templates filled from measured results,
 with no LLM calls, invented references or novelty claims. Report regeneration
-reads JSON/CSVs rather than loading a pickle or retraining.
+reads JSON/CSVs rather than loading a pickle or retraining; `report DIR
+--language en` switches language and `report DIR --context ctx.json` adds context.
 
-Reports use an academic abstract/methods/results/discussion structure shaped by
-claim → evidence → interpretation (academic-paper strategist/composer standards
-adapted to measured ML runs). Each major block states which model is preferred
-(or how a candidate stands), cites shared-CV or test numbers as evidence, then
-interprets meaning and limits—without inventing significance or causality.
-Plain-language metric definitions remain in an appendix. Every successfully
-trained model has its own results subsection (selected / near selected / weaker /
-clearly weaker), with validation folds, search configuration when present, and
-held-out metrics for the selected model only. When four or more models succeed,
-the overview indexes dedicated `reports/<ModelTag>.md` and `.docx` files. A
-validation summary table is appendix-only. Discussion opens with preference claim
-and evidence strength, then scope limits; figure notes explain only local
-statistical meaning. Editorial stance: remove empty marketing, preserve
-consequential qualifications, avoid strengthening claims. Templates are local;
-no LLM rewrite is required.
+### Report structure
+
+1. **Abstract** (objective / methods / results / conclusion) and numbered **key
+   findings**. The conclusion answers whether the features predict the outcome:
+   *supported* when the paired improvement over the feature-free baseline has a
+   95% interval above zero; *supported (point estimate only)* when no interval is
+   available; *uncertain* when the interval includes zero; *not supported* when
+   the model does not beat the baseline.
+2. **Methods**: data (counts, outcome distribution or class mix per partition,
+   completeness, predictor list), validation design, preprocessing, candidates
+   with model family, and evaluation/statistics (primary metric, baseline rule,
+   bootstrap, permutation importance; binary positive class named).
+3. **Results**: model comparison table and figure; test table with intervals,
+   baseline and paired improvement; error structure (regression residuals,
+   tolerance share; classification per-class recall, most common confusion,
+   calibration); predictor reliance table; development/test comparability;
+   group/time strata. Figures sit inside the subsection that discusses them.
+4. **Discussion**: answer with magnitude, a hedged reading of the model-family
+   comparison, evidence strength (what supports and what limits the conclusion),
+   data issues actually triggered in this run, one consolidated limitations
+   paragraph, and next steps generated from the findings.
+5. **Appendices**: per-model fold tables (or files), metric definitions,
+   figure-reading guide, reproducibility.
+
+Fixed, documented rules decide wording. Candidate standing uses the gap to the
+selected model in pooled between-fold SD units (≤1 close, 1–3 weaker, >3 clearly
+weaker). Relative margins are "x% lower error" with the worse model as the
+denominator. Data issues are raised only when triggered: standardized mean shift
+≥0.5 development SD, missingness difference ≥10 percentage points, ≥10% of test
+values outside the development range, Spearman |ρ| ≥0.7 between important
+features, or ECE >0.1. A feature is called negligible when its mean permutation
+decrease is non-positive, or below 2% of positive importance and within two
+repeat SDs. A family reading ("linear beats non-linear suggests an approximately
+linear relationship") is phrased as a reading of the comparison, never as a test
+of mechanism. Overfitting is mentioned when the train−validation gap exceeds half
+the validation score. Only the selected model is evaluated on the test set.
+
+### Report context
+
+`--context ctx.json` (train or report) accepts optional keys: `question`, `title`,
+`background`, `population`, `target_label`, `target_unit`, `tolerance` (positive,
+target units), `feature_labels` and `class_labels` (name → label maps). Unknown
+keys fail. The validated file is saved as `report-context.json` and reused on
+regeneration. Context changes wording only; it never changes computed results.
 
 Report organization adapts the question/outline/evidence/consistency principles
 of academic-paper-strategist and academic-paper-composer to empirical ML.

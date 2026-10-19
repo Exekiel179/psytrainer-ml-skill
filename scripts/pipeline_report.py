@@ -185,273 +185,304 @@ def plots(directory, summary):
     return captions
 
 
-def generate_report(directory):
-    from docx import Document
-    from docx.oxml import OxmlElement
-    from docx.oxml.ns import qn
-    from docx.shared import Inches, Pt, RGBColor
-    from report_explanations import (introduction, preprocessing, metric_explanation, figure_guide,
-                                     abstract, validation_methods, result_summary, discussion, model_name,
-                                     uncertainty_description, model_result_paragraphs, model_role_short,
-                                     PER_MODEL_SPLIT_THRESHOLD)
+# Figure families grouped by the results subsection that discusses them.
+SECTION_FIGURES = {
+    "comparison": ("model-validation", "parameter-search", "cv-comparison"),
+    "test": ("test-performance",),
+    "errors": ("regression-diagnostics", "classification-errors", "classification-discrimination",
+               "probability-calibration", "threshold-tradeoffs", "observed-predicted", "residuals",
+               "confusion-matrix", "roc", "precision-recall"),
+    "predictors": ("permutation-importance", "feature-correlation"),
+    "shift": ("feature-shift",),
+    "strata": ("strata-performance",),
+}
+
+
+def figure_family(name):
+    for families in SECTION_FIGURES.values():
+        for family in families:
+            if name == family or name.startswith(family + "-"):
+                return family
+    return name
+
+
+def cjk_font_name():
+    installed = {f.name for f in font_manager.fontManager.ttflist}
+    return next((f for f in ("Noto Serif CJK SC", "Noto Sans CJK SC", "SimSun", "Microsoft YaHei",
+                             "Songti SC", "PingFang SC") if f in installed), "SimSun")
+
+
+def save_context(directory, context):
+    """Validate a context file and keep it with the run for later regenerations."""
+    if context is None:
+        return
+    from report_facts import validate_context
+    data = validate_context(json.loads(Path(context).read_text(encoding="utf-8")))
+    (Path(directory) / "report-context.json").write_text(
+        json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+def generate_report(directory, context=None, language=None):
+    from report_document import ReportDocument
+    from report_explanations import (FIGURES, METRICS, PER_MODEL_SPLIT_THRESHOLD, preprocessing,
+                                     uncertainty_description, validation_methods)
+    from report_facts import collect
+    from report_narrative import STANDING, Narrator, fmt, interval, pct
 
     directory = Path(directory)
+    save_context(directory, context)
     s = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
+    if language:
+        s["language"] = language
     from pipeline_analysis import analyze
     analysis = analyze(directory, s)
     captions = plots(directory, s)
     zh = s["language"] == "zh"
-    doc = Document()
-    section = doc.sections[0]
-    section.page_width, section.page_height = Inches(8.27), Inches(11.69)
-    section.top_margin = section.bottom_margin = Inches(0.7)
-    section.left_margin = section.right_margin = Inches(0.7)
-    installed = {f.name for f in font_manager.fontManager.ttflist}
-    cjk_font = next((f for f in ("Noto Sans CJK SC", "Microsoft YaHei", "Arial Unicode MS", "PingFang SC", "Heiti SC")
-                     if f in installed), "Microsoft YaHei")
-    for name in ("Normal", "Title", "Heading 1", "Heading 2", "Caption"):
-        st = doc.styles[name]
-        st.font.name = "Arial"
-        fonts = st.element.get_or_add_rPr().rFonts
-        for key in list(fonts.attrib):
-            if "theme" in key.lower():
-                del fonts.attrib[key]
-        fonts.set(qn("w:eastAsia"), cjk_font)
-        for border in st.element.xpath("./w:pPr/w:pBdr"):
-            border.getparent().remove(border)
-        st.font.color.rgb = RGBColor.from_string("202124")
-    normal = doc.styles["Normal"]
-    normal.font.size = Pt(11)
-    normal.paragraph_format.space_after = Pt(6)
-    normal.paragraph_format.line_spacing = 1.15
-    doc.styles["Title"].font.size = Pt(22)
-    doc.styles["Heading 1"].font.size = Pt(14)
-    doc.styles["Caption"].font.size = Pt(9)
-    title = f"{s['target']} 预测模型分析报告" if zh else f"Predictive analysis of {s['target']}"
-    doc.core_properties.title = title
-    doc.core_properties.author = "PsyTrainer ML"
-    md = []
+    facts = collect(directory, s, analysis)
+    n = Narrator(s, facts, zh)
+    T = n.t
+    title = facts["context"].get("title") or T(f"{n.target}预测模型分析报告", f"Predicting {n.target}: model analysis report")
+    doc = ReportDocument(title, zh)
 
-    def heading(text, level=1, new_page=False):
-        item = doc.add_heading(text, level)
-        item.paragraph_format.page_break_before = new_page
-        md.append(f"{'#' * (level + 1)} {text}\n")
+    by_family = {}
+    for figure in captions:
+        by_family.setdefault(figure_family(figure["name"]), []).append(figure)
+    used = []
 
-    def paragraph(text):
-        doc.add_paragraph(text)
-        md.append(text + "\n")
+    def figures(section):
+        for family in SECTION_FIGURES[section]:
+            for figure in by_family.get(family, []):
+                guide = FIGURES.get(family)
+                label = doc.figure(directory / "figures" / f"{figure['name']}.png",
+                                   (guide[0 if zh else 3] + T("。", ". ") if guide else "") + figure["caption"],
+                                   figure["source"])
+                used.append((label, family))
 
-    doc.add_heading(title, 0)
-    md.append(f"# {title}\n")
-    heading("摘要" if zh else "Abstract")
-    if s["question"]:
-        paragraph(s["question"])
-    paragraph(abstract(s, zh))
-    heading("方法" if zh else "Methods")
-    heading("研究目标与数据" if zh else "Objective and Data", 2)
-    for text in introduction(s, zh):
-        paragraph(text)
-    heading("数据划分与验证设计" if zh else "Validation Design", 2)
-    paragraph(' '.join(validation_methods(s, zh)))
-    heading("预处理与特征构建" if zh else "Preprocessing and Feature Construction", 2)
-    processing = preprocessing(s, zh)
-    paragraph(' '.join(processing[:-1]))
-    paragraph(processing[-1])
-    heading("候选模型与选择准则" if zh else "Candidate Models and Selection", 2)
-    paragraph((f"本次比较 {len(s['comparison'])} 个有可用验证结果的模型：" if zh else
-               f"This run compares {len(s['comparison'])} models with usable validation results: ") +
-              "; ".join(f"{model_name(row['model'], zh)} ({s['metric']}={row['mean']:.4g})" for row in s['comparison']))
-    paragraph("各模型使用相同验证划分，依据主要指标的平均验证得分选择最终模型。模型标识与完整参数保存在运行记录中。" if zh else
-              "Candidates share validation splits. The mean validation score on the primary metric selects the final model; model identifiers and full parameters are retained in the run record.")
-    search = s.get("search", {"method": "none"})
-    if search["method"] == "none":
-        paragraph("候选模型使用默认或显式指定的固定参数，不执行参数搜索。" if zh else
-                  "Candidates use default or explicitly configured fixed parameters; no parameter search is performed.")
+    def labels_for(section):
+        count = sum(len(by_family.get(f, [])) for f in SECTION_FIGURES[section])
+        return [doc.next_figure_label(i) for i in range(1, count + 1)]
+
+    def ref(section):
+        names = labels_for(section)
+        if not names:
+            return ""
+        return T(f"（{names[0]}" + (f"–{names[-1].split()[-1]}" if len(names) > 1 else "") + "）",
+                 f" ({names[0]}" + (f"–{names[-1].split()[-1]}" if len(names) > 1 else "") + ")")
+
+    # Abstract and key findings ------------------------------------------------
+    doc.heading(T("摘要", "Abstract"))
+    for label, text in n.abstract():
+        doc.labelled(label, text)
+    doc.heading(T("要点", "Key findings"))
+    doc.bullets(n.key_points(), ordered=True)
+
+    # Methods -----------------------------------------------------------------
+    doc.heading(T("1 方法", "1 Methods"))
+    doc.heading(T("1.1 数据", "1.1 Data"), 2)
+    for text in n.data_description():
+        doc.para(text)
+    doc.heading(T("1.2 验证设计", "1.2 Validation design"), 2)
+    doc.para(" ".join(validation_methods(s, zh)))
+    doc.heading(T("1.3 预处理", "1.3 Preprocessing"), 2)
+    doc.para(" ".join(preprocessing(s, zh)))
+    doc.heading(T("1.4 候选模型与选择", "1.4 Candidate models and selection"), 2)
+    doc.para(n.selection_methods())
+    search = s.get("search") or {"method": "none"}
+    if search.get("method", "none") != "none":
+        doc.para(T(f"参数通过{'网格' if search['method'] == 'grid' else '随机'}搜索在开发集内选择，共评估 {search['evaluated_candidates']} 个配置（失败 {search['failed_candidates']} 个，每个模型上限 {search.get('max_candidates')} 个）；各配置的验证结果见 search-results.json。",
+                   f"Parameters were chosen by {search['method']} search on development data: {search['evaluated_candidates']} configurations evaluated ({search['failed_candidates']} failed; budget {search.get('max_candidates')} per model); see search-results.json."))
     else:
-        paragraph((f"采用{'网格搜索，依次比较预设配置' if search['method'] == 'grid' else '随机搜索，在预算内抽取预设配置'}，共评估 {search['evaluated_candidates']} 个候选配置，其中 {search['failed_candidates']} 个失败。配置中的超参数控制模型学习或预处理方式，其选择依据开发集验证结果。具体设置见 search-results.json 和 summary.json。" if zh else
-                   f"The {search['method']} search evaluated {search['evaluated_candidates']} predefined configurations, with {search['failed_candidates']} failures. Hyperparameters control model learning or preprocessing and are selected using development validation. Exact settings are in search-results.json and summary.json."))
+        doc.para(T("各模型使用默认或显式指定的固定参数，未进行参数搜索。", "Models used default or explicitly configured fixed parameters; no parameter search was run."))
     if s["preprocessing"].get("selection") == "forward":
-        paragraph("逐步前向筛选仅接收当前训练分区，内部交叉验证采用相同划分设计，并在内部训练折重新拟合预处理及重采样。" if zh else
-                  "Forward selection sees only the current training partition; its internal CV follows the same split design and refits preprocessing and resampling within internal training folds.")
-    intervals = pd.read_csv(directory / "metric-intervals.csv")
-    records = intervals.astype(object).where(pd.notna(intervals), None).to_dict('records')
-    cv = pd.read_csv(directory / "cv-scores.csv")
-    search_by_model = {}
+        doc.para(T("前向特征筛选只使用当前训练分区，其内部交叉验证沿用相同的划分设计。",
+                   "Forward selection used only the current training partition, with inner cross-validation following the same design."))
+    doc.heading(T("1.5 评价与统计方法", "1.5 Evaluation and statistics"), 2)
+    for text in n.evaluation_methods(uncertainty_description(facts["interval"], zh) if facts["interval"] else []):
+        doc.para(text)
+
+    # Results -----------------------------------------------------------------
+    doc.heading(T("2 结果", "2 Results"))
+    doc.heading(T("2.1 模型比较", "2.1 Model comparison"), 2)
+    comparison_text = n.comparison_results()
+    if comparison_text:
+        comparison_text[0] = comparison_text[0].rstrip("。.") + ref("comparison") + T("。", ".")
+    for text in comparison_text:
+        doc.para(text)
+    metric = n.mlabel()
+    headers = [T("模型", "Model"), T("类型", "Family"), T(f"验证{metric}（均值 ± SD）", f"Validation {metric} (mean ± SD)"),
+               T("折范围", "Fold range"), T("优于基线的折", "Folds beating baseline"),
+               T("训练−验证差", "Train−validation gap"), T("判断", "Assessment")]
+    rows = []
+    for row in facts["comparison"]:
+        rows.append([n.model(row["model"]) + (" *" if row["standing"] in ("selected", "sole") else ""), n.family(row["family"]),
+                     f"{fmt(row['mean'])} ± {fmt(row.get('sd'))}",
+                     f"{fmt(row.get('min'))}–{fmt(row.get('max'))}" if row.get("fold_scores") else "NA",
+                     f"{row['baseline_gain_positive_folds']}/{row['folds']}" if row.get("baseline_gain_positive_folds") is not None else "NA",
+                     fmt(row.get("train_gap")), STANDING[row["standing"]][0 if zh else 1]])
+    doc.table(T("候选模型的交叉验证表现", "Cross-validated performance of candidate models"), headers, rows,
+              T(f"* 选定模型。{metric}{n.better()}；训练−验证差按正值表示训练表现更好计算。“判断”依据与选定模型的差距相对折间标准差的大小：≤1 为接近，1–3 为较弱，>3 为明显较弱。各模型的逐折结果见附录 A。",
+                f"* Selected model. {metric}: {n.better()}; positive train−validation gaps favour training. Assessment uses the gap to the selected model in between-fold SD units: ≤1 close, 1–3 weaker, >3 clearly weaker. Fold-level results are in Appendix A."))
+    figures("comparison")
+
+    doc.heading(T("2.2 测试集表现", "2.2 Test performance"), 2)
+    test_text = n.test_results()
+    test_text[0] = test_text[0].rstrip("。.") + ref("test") + T("。", ".")
+    for text in test_text:
+        doc.para(text)
+    test_rows = []
+    order = list((s.get("test_metrics") or {}).keys()) + [k for k in facts["tests"] if k not in (s.get("test_metrics") or {})]
+    for key in order:
+        row = facts["tests"].get(key)
+        if not row:
+            continue
+        gain = row.get("gain")
+        gci = interval(row.get("gain_lower"), row.get("gain_upper")) or ""
+        test_rows.append([n.mlabel(key) + (" *" if key == n.metric else ""), fmt(row.get("estimate")),
+                          interval(row.get("lower"), row.get("upper")) or "NA",
+                          fmt(row.get("baseline")), (fmt(gain) + (f" {gci}" if gci else "")) if gain is not None else "NA"])
+    doc.table(T("选定模型在测试集上的表现", "Test-set performance of the selected model"),
+              [T("指标", "Metric"), T("模型", "Model"), T("95% CI", "95% CI"), T("基线", "Baseline"), T("改善（95% CI）", "Improvement (95% CI)")],
+              test_rows, T("* 主要指标。改善按优劣方向计算，正值表示模型优于基线；NA 表示该设计或数据下无法计算。区间为固定模型下测试样本的 bootstrap 百分位区间。",
+                           "* Primary metric. Improvement is oriented so positive favours the model; NA means not computable for this design or data. Intervals are bootstrap percentile intervals over test units for the fitted model."))
+    figures("test")
+
+    error_text = n.error_sentence()
+    calibration = n.calibration_sentence()
+    if error_text or by_family.keys() & set(SECTION_FIGURES["errors"]):
+        doc.heading(T("2.3 误差结构", "2.3 Error structure") if s["task"] == "regression" else T("2.3 分类错误与判别", "2.3 Classification errors and discrimination"), 2)
+        if error_text:
+            doc.para(error_text.rstrip("。.") + ref("errors") + T("。", "."))
+        if calibration:
+            doc.para(calibration)
+        figures("errors")
+
+    predictors = n.predictor_sentence()
+    if predictors:
+        doc.heading(T("2.4 预测变量的作用", "2.4 Predictor reliance"), 2)
+        doc.para(predictors.rstrip("。.") + ref("predictors") + T("。", "."))
+        ranked = (facts["importance"] or {}).get("ranked") or []
+        if len(ranked) > 1:
+            doc.table(T("测试集置换重要性", "Test-set permutation importance"),
+                      [T("排名", "Rank"), T("特征", "Feature"), T("平均下降", "Mean decrease"), T("重复间 SD", "Repeat SD"), T("占正向重要性", "Share of positive")],
+                      [[str(i), n.feature(r["feature"]), fmt(r["mean"]), fmt(r["sd"]), pct(r["share"]) if r["share"] else "—"]
+                       for i, r in enumerate(ranked[:15], 1)],
+                      T(f"平均下降为置换该特征后主要指标的变化（已统一为越大表示依赖越强）。{'仅列出前 15 项；' if len(ranked) > 15 else ''}完整结果见 importance.csv。",
+                        f"Mean decrease is the change in the primary metric after permuting the feature (oriented so larger means more reliance). {'Top 15 shown; ' if len(ranked) > 15 else ''}Full results in importance.csv."))
+        figures("predictors")
+
+    shift = facts.get("shift") or {}
+    if by_family.get("feature-shift") or shift:
+        doc.heading(T("2.5 开发集与测试集的可比性", "2.5 Comparability of development and test data"), 2)
+        flags = [x for x in n.data_flags() if "分层" not in x and "Across test" not in x]
+        if flags:
+            doc.para(" ".join(flags).rstrip("。.") + ref("shift") + T("。", "."))
+        elif shift.get("max_shift") is not None:
+            doc.para(T(f"开发集与测试集在各特征上的均值差异均小于 {fmt(0.5)} 个开发集标准差（最大 {fmt(shift['max_shift'], 2)}），缺失率差异均小于 10 个百分点，未见明显的分布差异{ref('shift')}。",
+                       f"All feature means differed by less than 0.5 development SD between partitions (maximum {fmt(shift['max_shift'], 2)}) and missingness by less than 10 percentage points{ref('shift')}."))
+        figures("shift")
+
+    if by_family.get("strata-performance"):
+        doc.heading(T("2.6 分层稳定性", "2.6 Stability across strata"), 2)
+        strata = facts.get("strata") or {}
+        if strata:
+            unit = T("组", "group") if s["split"] == "group" else T("时间块", "time block")
+            worst = strata["worst"] if s["split"] == "group" else T(f"第 {strata['worst']} 个时间块", f"time block {strata['worst']}")
+            doc.para(T(f"测试集按{unit}分为 {strata['n_strata']} 层，{n.mlabel(strata['measure'])}在 {fmt(strata['min'])} 到 {fmt(strata['max'])} 之间；表现最差的是{worst}（{fmt(strata['worst_value'])}，n = {strata['worst_n']}）{ref('strata')}。层间差异为描述性结果，可能受样本量和构成影响。",
+                       f"The test set split into {strata['n_strata']} {unit}s; {n.mlabel(strata['measure'])} ranged from {fmt(strata['min'])} to {fmt(strata['max'])}, worst for {worst} ({fmt(strata['worst_value'])}, n = {strata['worst_n']}){ref('strata')}. Differences are descriptive and may reflect size and composition."))
+        figures("strata")
+
+    # Discussion --------------------------------------------------------------
+    doc.heading(T("3 讨论", "3 Discussion"))
+    for text in n.discussion():
+        doc.para(text)
+    for warning in s.get("warnings") or []:
+        if "every development class" in warning:
+            doc.para(T("注意：测试集未包含开发集中的全部类别，部分指标与曲线无法计算。", "Note: the test set lacks some development classes, so some metrics and curves are undefined."))
+    steps = n.next_steps()
+    if steps:
+        doc.heading(T("建议的后续工作", "Suggested next steps"), 2)
+        doc.bullets(steps)
+
+    # Appendices --------------------------------------------------------------
+    doc.heading(T("附录 A 各候选模型的详细结果", "Appendix A Detailed results by model"), page_break=True)
+    split_models = len(facts["comparison"]) >= PER_MODEL_SPLIT_THRESHOLD
+    fold_headers = [T("折", "Fold"), T("训练 n", "Train n"), T("验证 n", "Validation n"), T("训练得分", "Training"),
+                    T("验证得分", "Validation"), T("同折基线", "Same-fold baseline")]
+
+    def fold_rows(row):
+        return [[str(r["fold"]), str(r["train_n"] or "NA"), str(r["validation_n"] or "NA"), fmt(r["train_score"]),
+                 fmt(r["score"]), fmt(r["baseline"])] for r in row.get("fold_table") or []]
+
+    def model_heading(row):
+        mark = T("（选定）", " (selected)") if row["standing"] in ("selected", "sole") else ""
+        return f"{n.model(row['model'])}{mark}"
+
+    search_params = {}
     search_path = directory / "search-results.json"
     if search_path.is_file():
-        for trial in json.loads(search_path.read_text(encoding="utf-8")):
-            if trial.get("status") == "completed":
-                search_by_model[trial["model"]] = trial.get("parameters") or {}
+        trials = [r for r in json.loads(search_path.read_text(encoding="utf-8")) if r.get("status") == "completed"]
+        for trial in trials:
+            best = search_params.get(trial["model"])
+            better = best is None or (trial["mean"] < best["mean"] if s["direction"] == "lower" else trial["mean"] > best["mean"])
+            if better:
+                search_params[trial["model"]] = trial
 
-    def model_folder_body(row):
-        folds = cv.loc[cv.model == row["model"], "score"].astype(float).tolist()
-        return model_result_paragraphs(row, s, folds, search_by_model.get(row["model"]), zh)
+    def model_blocks(target_doc, row, level):
+        target_doc.heading(model_heading(row), level)
+        target_doc.para(n.model_detail(row))
+        trial = search_params.get(row["model"])
+        if trial and trial.get("parameters") and s.get("search", {}).get("method", "none") != "none":
+            target_doc.para(T("最佳搜索配置：", "Best searched configuration: ") +
+                            json.dumps(trial["parameters"], ensure_ascii=False))
+        if row.get("fold_table"):
+            target_doc.table(T(f"{n.model(row['model'])}的逐折结果（{metric}）", f"Fold results for {n.model(row['model'])} ({metric})"),
+                             fold_headers, fold_rows(row))
 
-    heading("结果" if zh else "Results")
-    heading("测试集表现与基线比较" if zh else "Test Performance and Baseline Comparison", 2)
-    paragraph(result_summary(s, records, zh))
-    table = doc.add_table(rows=1, cols=2)
-    table.style = "Light Shading Accent 1"
-    for cell, text in zip(table.rows[0].cells, ("指标" if zh else "Metric", "数值" if zh else "Value")):
-        cell.text = text
-    for key, value in s["test_metrics"].items():
-        row = table.add_row().cells
-        row[0].text, row[1].text = key, f"{value:.6g}" if value is not None else "undefined"
-    md.append("| Metric | Value |\n|---|---|\n" + "\n".join(
-        f"| {k} | {v:.6g} |" if v is not None else f"| {k} | undefined |"
-        for k, v in s["test_metrics"].items()) + "\n")
-    strategy = s.get('baseline', {}).get('strategy', '')
-    baseline = {"mean": ("始终预测开发集目标的平均值", "always predicts the development outcome mean"),
-                "prior": ("按开发集类别比例给出概率，并按最多见类别作类别预测", "uses development class frequencies as probabilities and predicts the most frequent class"),
-                "most_frequent": ("始终预测开发集中最多见的类别", "always predicts the most frequent development class")}.get(strategy)
-    paragraph((("简单基线" + baseline[0] + "。" if baseline else "简单基线只使用开发数据学习简单预测规则。") +
-               "该参照不利用预测变量，用于量化模型相对于简单预测规则的增益。" if zh else
-               ("The dummy baseline " + baseline[1] + ". " if baseline else "The dummy learns a simple rule from development data. ") +
-               "It does not use predictors and quantifies the model's gain over a simple prediction rule."))
-
-    split_models = len(s["comparison"]) >= PER_MODEL_SPLIT_THRESHOLD
-    heading("各模型结果" if zh else "Results by Model", 2)
     if split_models:
         reports_dir = directory / "reports"
         reports_dir.mkdir(exist_ok=True)
-        paragraph(("成功训练的模型较多，故为每个模型单独撰写结果报告，总技术报告仅保留索引与选定模型的测试评价。"
-                   "附录汇总表不可替代各模型分节。" if zh else
-                   "Because many models completed training, each has a dedicated results report. "
-                   "This overview indexes them and retains held-out evaluation of the selected model. "
-                   "The appendix summary table does not replace per-model sections."))
-        index_rows = ["| " + ("模型 | 角色 | 验证均值 | 分报告" if zh else
-                              "Model | Role | CV mean | Report") + " |",
-                      "|---|---|---|---|"]
-        for row in s["comparison"]:
+        doc.para(T(f"共有 {len(facts['comparison'])} 个模型完成训练，每个模型的详细结果单独成文，索引如下。",
+                   f"{len(facts['comparison'])} models completed training; each has its own detailed report, indexed below."))
+        index = []
+        for row in facts["comparison"]:
             tag = row["model"]
-            name = model_name(tag, zh)
-            role = model_role_short(row, s, zh)
-            body = model_folder_body(row)
-            model_md = [
-                f"# {name}\n",
-                f"{'## 结果' if zh else '## Results'}\n",
-                *([p + "\n" for p in body]),
-            ]
-            rel = f"reports/{tag}.md"
-            (reports_dir / f"{tag}.md").write_text("\n".join(model_md), encoding="utf-8")
-            model_doc = Document()
-            model_doc.add_heading(name, 0)
-            model_doc.add_heading("结果" if zh else "Results", 1)
-            for text in body:
-                model_doc.add_paragraph(text)
-            model_doc.save(reports_dir / f"{tag}.docx")
-            heading(name, 3)
-            paragraph(("详见" if zh else "See ") + rel + ("。" if zh else "."))
-            for text in body[:1]:
-                paragraph(text)
-            index_rows.append(
-                f"| {name} (`{tag}`) | {role} | {row['mean']:.4g} | [{tag}.md]({rel}) |")
-        md.extend(line + "\n" for line in index_rows)
+            sub = ReportDocument(f"{n.model(tag)}：{T('模型详细结果', 'detailed results')}" if zh else f"{n.model(tag)}: detailed results", zh)
+            sub.para(T(f"本文件是“{title}”的附属报告，比较设定见总报告方法部分。", f"Companion to '{title}'; see the overview report for methods."))
+            model_blocks(sub, row, 1)
+            (reports_dir / f"{tag}.md").write_text(sub.markdown(directory), encoding="utf-8")
+            sub.docx(reports_dir / f"{tag}.docx", cjk_font_name())
+            index.append([model_heading(row), f"{fmt(row['mean'])} ± {fmt(row.get('sd'))}",
+                          STANDING[row["standing"]][0 if zh else 1], f"[{tag}.md](reports/{tag}.md)"])
+        doc.table(T("各模型详细报告索引", "Index of per-model reports"),
+                  [T("模型", "Model"), T(f"验证{metric}", f"Validation {metric}"), T("判断", "Assessment"), T("文件", "File")], index)
     else:
-        paragraph(("以下各节按验证排序列出每一个成功训练模型的独立结果；"
-                   "汇总对照表仅作附录，不替代分节叙述。" if zh else
-                   "Each successfully trained model has its own results subsection below. "
-                   "The summary comparison table is appendix-only and does not replace these sections."))
-        for row in s["comparison"]:
-            heading(model_name(row["model"], zh), 3)
-            for text in model_folder_body(row):
-                paragraph(text)
+        for row in facts["comparison"]:
+            model_blocks(doc, row, 2)
+    if s.get("failures"):
+        doc.para(T("未完成训练的模型：", "Models that failed: ") + json.dumps(s["failures"], ensure_ascii=False))
 
-    heading("估计不确定性" if zh else "Estimate Uncertainty", 2)
-    interval = analysis["interval"]
-    for text in uncertainty_description(interval, zh):
-        paragraph(text)
-    table = doc.add_table(rows=1, cols=4)
-    table.style = "Light Shading Accent 1"
-    headers = ["指标", "模型点估计", "模型 95% 区间", "相对基线增益"] if zh else ["Metric", "Estimate", "Model 95% interval", "Gain over baseline"]
-    for cell, text in zip(table.rows[0].cells, headers):
-        cell.text = text
-    md.append("| " + " | ".join(headers) + " |\n|---|---|---|---|\n")
-    md_rows = []
-    for row in intervals.itertuples():
-        values = [row.metric, f"{row.estimate:.4g}" if pd.notna(row.estimate) else "NA",
-                  f"[{row.lower:.4g}, {row.upper:.4g}]" if pd.notna(row.lower) else "NA",
-                  f"{row.gain:.4g}" if pd.notna(row.gain) else "NA"]
-        for cell, text in zip(table.add_row().cells, values):
-            cell.text = text
-        md_rows.append("| " + " | ".join(values) + " |")
-    md[-1] += "\n".join(md_rows) + "\n"
-    paragraph("差值按改善方向定义：得分型指标为模型减基线，误差型指标为基线减模型，因此正值均表示改善。" if zh else
-              "Differences are oriented toward improvement: model minus baseline for scores, baseline minus model for losses. Positive values therefore favor the model.")
+    doc.heading(T("附录 B 指标释义", "Appendix B Metric definitions"))
+    for key in order:
+        spec = METRICS.get({"f1": "f1_macro", "precision": "precision_macro", "recall": "recall_macro"}.get(key, key))
+        if spec:
+            doc.labelled(spec[0] if zh else spec[2], spec[1] if zh else spec[3])
 
-    for number, figure in enumerate(captions, 1):
-        figure_title, explanations = figure_guide(figure, s, analysis, zh)
-        heading((f"图 {number} " if zh else f"Figure {number} ") + figure_title, new_page=True)
-        path = directory / "figures" / f"{figure['name']}.png"
-        from PIL import Image
-        with Image.open(path) as image:
-            width, height = image.size
-        display_width = min(6.7, 4.5 * width / height)
-        doc.add_picture(str(path), width=Inches(display_width))
-        doc.add_paragraph(figure["caption"], style="Caption")
-        paragraph(("源数据：" if zh else "Source data: ") + figure["source"])
-        md.append(f"![{figure['name']}](figures/{figure['name']}.png)\n\n{figure['caption']}\n")
-        for _, text in explanations:
-            paragraph(text)
+    guides = [(label, FIGURES[family]) for label, family in used if family in FIGURES]
+    if guides:
+        doc.heading(T("附录 C 图表阅读指南", "Appendix C How to read the figures"))
+    for label, guide in guides:
+        if guide:
+            doc.labelled(f"{label} {guide[0]}" if zh else f"{label} {guide[3]}", (guide[1] + guide[2]) if zh else (guide[4] + " " + guide[5]))
 
-    heading("讨论与局限" if zh else "Discussion and Limitations", new_page=True)
-    for text in discussion(s, analysis, zh):
-        paragraph(text)
-    if s["failures"]:
-        paragraph(("未完成的候选模型：" if zh else "Failed candidates: ") + json.dumps(s["failures"], ensure_ascii=False))
-    for warning in s["warnings"]:
-        if "omitted" in warning or "every development class" in warning:
-            if "Pearson correlation is undefined for a constant dummy" not in warning:
-                paragraph(warning)
-    heading("附录 模型验证汇总" if zh else "Appendix Model Validation Summary", new_page=True)
-    paragraph(("下表汇总各成功模型的开发集验证均值与折间标准差，仅作对照；"
-               "正式叙述见「各模型结果」分节或分文件报告。" if zh else
-               "The table summarizes development validation means and between-fold SDs for successful models. "
-               "It is comparative only; formal narratives appear under Results by Model or in per-model reports."))
-    summary_headers = (["模型", "折数", f"验证 {s['metric']}", "折间 SD", "角色"] if zh else
-                       ["Model", "Folds", f"CV {s['metric']}", "Fold SD", "Role"])
-    table = doc.add_table(rows=1, cols=5)
-    table.style = "Light Shading Accent 1"
-    for cell, text in zip(table.rows[0].cells, summary_headers):
-        cell.text = text
-    md.append("| " + " | ".join(summary_headers) + " |\n|---|---|---|---|---|\n")
-    for row in s["comparison"]:
-        role = model_role_short(row, s, zh)
-        values = [model_name(row["model"], zh), str(row["folds"]), f"{row['mean']:.4g}",
-                  f"{row['sd']:.4g}", role]
-        for cell, text in zip(table.add_row().cells, values):
-            cell.text = text
-        md.append("| " + " | ".join(values) + " |\n")
+    doc.heading(T(f"附录 {'D' if guides else 'C'} 复现信息", f"Appendix {'D' if guides else 'C'} Reproducibility"))
+    versions = "; ".join(f"{k} {v}" for k, v in (s.get("versions") or {}).items() if v)
+    doc.para(T(f"随机种子 {s['seed']}。完整配置、输入文件 SHA256 与软件版本记录在 summary.json；样本划分记录在 split-membership.csv 与 cv-membership.csv；pipeline.joblib 保存最终的预处理与模型，可直接用于预测。图的矢量版本（SVG/PDF）与源数据随报告保存在 figures/。",
+               f"Random seed {s['seed']}. summary.json records configuration, input SHA256 hashes and software versions; split-membership.csv and cv-membership.csv list the splits; pipeline.joblib holds the fitted preprocessing and model for prediction. Vector figures (SVG/PDF) and source data are in figures/."))
+    if versions:
+        doc.para(T("软件版本：", "Software: ") + versions)
+    if facts["context"]:
+        doc.para(T("报告上下文（变量含义、单位等）由研究者提供，保存在 report-context.json。",
+                   "Report context (variable meanings, units) was supplied by the researcher and saved in report-context.json."))
 
-    heading("附录 评价指标释义" if zh else "Appendix Metric Definitions")
-    paragraph("以下说明给出指标定义及其在本次测试集中的数值。NA 或 undefined 表示数据或设计不足以计算该指标。" if zh else
-              "The definitions below accompany values from this test set. NA or undefined denotes an estimate unsupported by the data or design.")
-    for key, value in s['test_metrics'].items():
-        label, text = metric_explanation(key, value, zh)
-        heading(label, 2)
-        paragraph(text)
-    heading("复现记录" if zh else "Reproducibility Record")
-    paragraph(("完整配置、输入 SHA256 和软件版本位于 summary.json；划分清单位于 split-membership.csv 和 cv-membership.csv。保存的 pipeline.joblib 包含最终预处理与模型，预测时整体复用。绘图源数据、矢量图与高清预览随报告保存。"
-               if zh else "summary.json contains configuration, input SHA256 hashes and software versions. split-membership.csv and cv-membership.csv identify all splits. pipeline.joblib stores the complete fitted preprocessing and model. Figure source data, vectors and high-resolution previews accompany this report."))
-    paragraph("; ".join(f"{k} {v}" for k, v in s["versions"].items()))
-    # Keep header rows and short data rows intact across Word pagination.
-    for table in doc.tables:
-        repeat = OxmlElement("w:tblHeader")
-        table.rows[0]._tr.get_or_add_trPr().append(repeat)
-        for row in table.rows:
-            row._tr.get_or_add_trPr().append(OxmlElement("w:cantSplit"))
-        if len(table.rows) <= 12:
-            for row in table.rows[:-1]:
-                for cell in row.cells:
-                    for paragraph in cell.paragraphs:
-                        paragraph.paragraph_format.keep_with_next = True
-    # Direct formatting prevents table/theme fonts from overriding CJK glyphs.
-    paragraphs = list(doc.paragraphs) + [p for table in doc.tables for row in table.rows
-                                       for cell in row.cells for p in cell.paragraphs]
-    for p in paragraphs:
-        for run in p.runs:
-            run.font.name = "Arial"
-            fonts = run._element.get_or_add_rPr().rFonts
-            fonts.set(qn("w:eastAsia"), cjk_font)
-    doc.save(directory / "report.docx")
-    (directory / "report.md").write_text("\n".join(md), encoding="utf-8")
+    doc.docx(directory / "report.docx", cjk_font_name())
+    (directory / "report.md").write_text(doc.markdown(directory), encoding="utf-8")

@@ -1,7 +1,9 @@
 # Interpretive report sample inputs
 
-Synthetic regression CSV used to regenerate the v0.7.1 interpretive report sample
-(`media/v0.7.1-interpretive-report.md` / `.docx` in the project store).
+Synthetic regression CSV for checking report wording end to end. `score` is
+generated from `signal` and `baseline`; `noise` and `age` carry no information,
+and `noise` is deliberately missing more often in some rows. `context.json`
+supplies labels, a unit and a tolerance.
 
 ```bash
 "$PY" scripts/pipeline_train.py train \
@@ -10,7 +12,8 @@ Synthetic regression CSV used to regenerate the v0.7.1 interpretive report sampl
   --target score --task regression --split random \
   --output-dir /tmp/interpretive-out --cv 3 --repeats 3 \
   --impute median --scaler standard --search none --metric mae \
-  --language zh --question "样例：信号与基线能否预测分数？" \
+  --language zh --question "信号与基线测量能否预测分数？" \
+  --context fixtures/interpretive-sample/context.json \
   --model ModelLRRegressor --model ModelExtraTreeRegressor \
   --model ModelRandomForestRegressor --model ModelKNeighborsRegressor \
   --bootstrap 100
