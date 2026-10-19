@@ -3,6 +3,8 @@
 import textwrap
 
 import matplotlib.pyplot as plt
+import json
+
 import numpy as np
 import pandas as pd
 from sklearn.metrics import confusion_matrix, precision_recall_curve, roc_curve
@@ -47,7 +49,8 @@ def diagnostic_plots(directory, summary, add):
         else:
             bx.text(.5, i, "Undefined for constant baseline", transform=bx.get_yaxis_transform(),
                     ha="center", fontsize=8)
-    labels = [textwrap.fill(name.removeprefix("Model"), 19) for name in names]
+    from report_explanations import model_name
+    labels = [textwrap.fill(model_name(name, zh), 19) for name in names]
     for axis in (ax, bx):
         axis.set_yticks(range(len(names)), labels if axis is ax else [])
         axis.set_ylim(len(names) - .5, -.5)
@@ -111,7 +114,12 @@ def diagnostic_plots(directory, summary, add):
             for (i, j), value in np.ndenumerate(matrix):
                 ax.text(j, i, f"{value}\n{rates[i, j]:.0%}" if support[i] else "NA", ha="center", va="center", fontsize=7,
                         color="white" if rates[i, j] > .5 else "black")
-        keys = [f"C{i}" for i in range(len(classes))]
+        # Real class names (with researcher labels) when short enough; codes otherwise.
+        context_path = directory / "report-context.json"
+        class_labels = (json.loads(context_path.read_text(encoding="utf-8")).get("class_labels") or {}) if context_path.is_file() else {}
+        names_shown = [class_labels.get(str(c), str(c)) for c in classes]
+        readable = len(classes) <= 6 and max(len(n) for n in names_shown) <= 12
+        keys = names_shown if readable else [f"C{i}" for i in range(len(classes))]
         ax.set_xticks(range(len(classes)), keys, rotation=90 if len(classes) > 12 else 0)
         ax.set_yticks(range(len(classes)), keys)
         ax.set(xlabel="Predicted class", ylabel="Observed class")

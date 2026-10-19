@@ -31,6 +31,90 @@ def style():
                          "figure.facecolor": "white", "axes.facecolor": "white"})
 
 
+FIGURE_TEXT_ZH = {
+    "Training": "训练折", "Validation": "验证折", "Development": "训练集", "Test": "测试集",
+    "Validation gain over dummy baseline": "相对基线模型的提升（验证折）",
+    "Training versus validation": "训练与验证得分", "Paired baseline comparison": "相对基线模型的提升",
+    "Held-out performance and uncertainty": "测试集表现与 95% CI",
+    "Selected model": "最终模型", "Dummy baseline": "基线模型",
+    "Undefined for constant baseline": "基线为常数，无法计算",
+    "Observed outcome": "实际值", "Predicted outcome": "预测值", "Residual (observed - predicted)": "残差（实际 − 预测）",
+    "Absolute prediction error": "绝对误差", "Fraction at or below error": "累积比例",
+    "Mean predicted outcome in bin": "分箱平均预测值", "Mean absolute error": "MAE",
+    "Predicted class": "预测类别", "Observed class": "实际类别", "Class metric": "指标值",
+    "Precision": "精确率", "Recall": "召回率", "F1": "F1",
+    "Where predictions fail": "混淆矩阵（按实际类别归一化）", "Performance by class": "各类别表现",
+    "False positive rate": "假阳性率", "True positive rate": "真阳性率",
+    "Mean predicted probability": "平均预测概率", "Observed positive fraction": "实际正类比例",
+    "Predicted probability bin": "预测概率区间", "Samples per bin": "样本数",
+    "Probability reliability": "校准曲线", "Evidence supporting each bin": "各区间样本数",
+    "Probability threshold": "概率阈值", "Decision score threshold": "决策分数阈值", "Fraction": "比例",
+    "Sensitivity": "灵敏度", "Specificity": "特异度", "Positive fraction": "预测为正类的比例",
+    "Threshold trade-offs on held-out data": "不同阈值下的分类表现（测试集）",
+    "Feature reliance and repeat variability": "置换重要性", "Input feature": "特征",
+    "Training Spearman correlation": "Spearman 相关（训练集）", "Correlated predictors can share reliance": "特征间相关",
+    "(Test mean - training mean) / SD": "（测试集均值 − 训练集均值）/ 训练集 SD", "Missing fraction": "缺失率",
+    "Prediction agreement": "预测值与实际值", "Bias and residual spread": "残差", "Error distribution": "绝对误差分布",
+    "Error across prediction levels": "不同预测区间的误差",
+    "Feature distribution shift": "均值差异", "Missingness shift": "缺失率差异", "Candidate index": "候选配置编号",
+}
+
+
+def localize_figure(fig, zh):
+    """Readable figure text: model display names everywhere, Chinese labels in Chinese reports."""
+    import re
+    from matplotlib.text import Text
+    from report_explanations import model_name
+    from report_narrative import metric_label
+
+    def better(direction):
+        return ("越高越好" if direction == "higher" else "越低越好") if zh else f"{direction} is better"
+
+    def translate(text):
+        prefix = ""
+        match = re.match(r"^([a-d])  (.*)$", text, re.S)
+        if match:
+            prefix, text = match.group(1) + "  ", match.group(2)
+        model = "Model" + text.replace("\n", "")
+        if model_name(model, zh) != model:
+            return prefix + model_name(model, zh)
+        m = re.match(r"^(?:Held-out )?(\w+) \((lower|higher) is better\)$", text)
+        if m:
+            label = metric_label({"f1": "f1_macro", "precision": "precision_macro", "recall": "recall_macro"}.get(m.group(1), m.group(1)), zh)
+            held = text.startswith("Held-out")
+            return prefix + (f"{'测试集 ' if held and zh else 'Test ' if held else ''}{label}（{better(m.group(2))}）" if zh else
+                             f"{'Test ' if held else ''}{label} ({better(m.group(2))})")
+        m = re.match(r"^Decrease in (\w+) scorer", text)
+        if m:
+            label = metric_label(m.group(1), zh)
+            return prefix + (f"置换后 {label} 的变化（越大越重要）" if zh else f"Change in {label} after permutation (larger = more important)")
+        m = re.match(r"^Held-out performance by (time block|group)$", text)
+        if m and zh:
+            return prefix + ("测试集各时间块的表现" if m.group(1) == "time block" else "测试集各组的表现")
+        m = re.match(r"^(Ranking: AUC|Retrieval: AP)=(.*)$", text)
+        if m and zh:
+            return prefix + ("排序能力：AUC = " if "AUC" in m.group(1) else "检出能力：AP = ") + m.group(2)
+        if zh and text in FIGURE_TEXT_ZH:
+            return prefix + FIGURE_TEXT_ZH[text]
+        if zh and text.endswith(")") and " (failed: " in text:
+            name, failed = text[:-1].split(" (failed: ")
+            return prefix + f"{model_name('Model' + name, True)}（失败 {failed} 个）"
+        return prefix + text
+
+    from matplotlib.ticker import FixedFormatter
+    for ax in fig.axes:
+        for axis in (ax.xaxis, ax.yaxis):
+            formatter = axis.get_major_formatter()
+            if isinstance(formatter, FixedFormatter):
+                formatter.seq = [translate(str(label)) for label in formatter.seq]
+    for item in fig.findobj(Text):
+        original = item.get_text()
+        if original:
+            updated = translate(original)
+            if updated != original:
+                item.set_text(updated)
+
+
 def save_figure(fig, directory, name):
     fig.canvas.draw()
     # Optional local publication QA; ordinary installs need no external skills.
@@ -58,6 +142,7 @@ def plots(directory, summary):
     captions = []
 
     def add(fig, name, caption, source):
+        localize_figure(fig, zh)
         save_figure(fig, figures, name)
         captions.append({"name": name, "caption": caption, "source": source})
 
@@ -213,6 +298,10 @@ def paper_caption(family, figure, s, n, zh):
     tech = figure.get("caption", "")
     key = re.search(r"(?:类别映射|映射|Class key|Key)[：:]\s*(.+?)[。.]?\s*$", tech)
     key = key.group(1).rstrip("。.") if key else ""
+    classes = s.get("classes") or []
+    shown = [(n.ctx.get("class_labels") or {}).get(str(c), str(c)) for c in classes]
+    if family == "classification-errors" and classes and len(classes) <= 6 and max(len(x) for x in shown) <= 12:
+        key = ""  # figure already shows class names
     positive = n.cls(s["classes"][1]) if len(s.get("classes") or []) == 2 else ""
     unit = ("组" if s.get("split") == "group" else "时间块") if zh else ("group" if s.get("split") == "group" else "time block")
     ci = "误差线为 95% CI（测试集 bootstrap）。" if (n.f.get("interval") or {}).get("omitted_reason") is None else ""

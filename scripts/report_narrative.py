@@ -503,13 +503,16 @@ class Narrator:
             return ""
         brier = self.f["tests"].get("brier", {}).get("estimate")
         direction = cls.get("calibration_direction")
-        text = self.t(f"预测概率的校准误差（ECE）为 {fmt(ece)}", f"Probability calibration error (ECE) was {fmt(ece)}")
+        text = self.t(f"预测概率的校准情况：ECE = {fmt(ece)}", f"Calibration of predicted probabilities: ECE = {fmt(ece)}")
         if brier is not None:
-            text += self.t(f"，Brier 分数为 {fmt(brier)}", f", Brier score {fmt(brier)}")
-        positive = self.cls(self.s["classes"][1]) if len(self.s.get("classes") or []) == 2 else ""
-        if ece > 0.1 and direction in ("over", "under"):
-            text += self.t(f"；整体上模型{'高估' if direction == 'over' else '低估'}了属于{positive}的概率，若直接使用概率需先校准",
-                           f"; the model tended to {'over' if direction == 'over' else 'under'}estimate the probability of {positive}, so probabilities need recalibration before direct use")
+            text += f", Brier = {fmt(brier)}"
+        text += self.t("（两者越接近 0，预测概率越可信）", " (values closer to 0 mean more trustworthy probabilities)")
+        classes = self.s.get("classes") or []
+        if ece > 0.1 and direction in ("over", "under") and len(classes) == 2:
+            pos, neg = self.cls(classes[1]), self.cls(classes[0])
+            high, low = (pos, neg) if direction == "over" else (neg, pos)
+            text += self.t(f"。模型给出的“属于{high}”的概率整体偏高（相应地，“属于{low}”的概率偏低）；若要直接使用预测概率，需要先做概率校准",
+                           f". The predicted probability of {high} was too high overall (and that of {low} too low); recalibrate before using probabilities directly")
         return text + self.t("。", ".")
 
     def data_flags(self):
@@ -704,11 +707,11 @@ class Narrator:
         bad = [weaknesses[code](value) for code, value in st["weaknesses"]]
         text = ""
         if good:
-            text += self.t(f"支持这一结论的证据包括：{'；'.join(good)}。", f"The conclusion is supported by {'; '.join(good)}. ")
+            text += self.t(f"这一结论有较充分的依据：{'；'.join(good)}。", f"This conclusion is well supported: {'; '.join(good)}. ")
         if bad:
-            text += self.t(f"削弱其强度的因素包括：{'；'.join(bad)}。", f"Its strength is limited by {'; '.join(bad)}. ")
-        text += self.t("此外，最终模型的交叉验证分数是在多个候选中取最优得到的，存在选择偏倚，因此以测试集结果为准。",
-                       "In addition, the selected model's cross-validation score is the best of several candidates and therefore optimistic; the test result is the reference estimate.")
+            text += self.t(f"但解读时需要注意：{'；'.join(bad)}。", f"However, {'; '.join(bad)}. ")
+        text += self.t("另外，最终模型是从多个候选中按交叉验证得分选出的，其交叉验证得分会偏乐观，因此模型表现应以测试集结果为准。",
+                       "Also, the final model was chosen for its cross-validation score among several candidates, so that score is optimistic; the test-set result is the estimate to rely on.")
         return text
 
     def limitations_paragraph(self):
