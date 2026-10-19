@@ -206,6 +206,44 @@ def figure_family(name):
     return name
 
 
+def paper_caption(family, figure, s, n, zh):
+    """Short journal-style caption; technical detail stays in figures/figure-manifest.json."""
+    import re
+    metric = n.mlabel()
+    tech = figure.get("caption", "")
+    key = re.search(r"(?:类别映射|映射|Class key|Key)[：:]\s*(.+?)[。.]?\s*$", tech)
+    key = key.group(1).rstrip("。.") if key else ""
+    positive = n.cls(s["classes"][1]) if len(s.get("classes") or []) == 2 else ""
+    unit = ("组" if s.get("split") == "group" else "时间块") if zh else ("group" if s.get("split") == "group" else "time block")
+    ci = "误差线为 95% CI（测试集 bootstrap）。" if (n.f.get("interval") or {}).get("omitted_reason") is None else ""
+    ci_en = "Error bars are 95% CIs (test-set bootstrap). " if ci else ""
+    captions = {
+        "model-validation": (f"各候选模型的交叉验证表现。(a) 每折的训练得分（灰）与验证得分（蓝）；(b) 每折中模型相对基线模型的提升，正值表示优于基线，绿色为均值 ± SD。",
+                             f"Cross-validated performance of candidate models. (a) Training (grey) and validation (blue) scores per fold; (b) improvement over the baseline per fold (positive = better), green = mean ± SD."),
+        "test-performance": (f"最终模型与基线模型在测试集上的 {metric}。{ci}", f"Test-set {metric} of the final model and the baseline. {ci_en}"),
+        "regression-diagnostics": ("测试集预测误差。(a) 预测值与实际值，虚线为 y = x；(b) 残差（实际 − 预测）与预测值，曲线为分箱均值；(c) 绝对误差的累积分布；(d) 不同预测区间的 MAE。",
+                                   "Test-set prediction error. (a) Predicted vs. observed, dashed line y = x; (b) residuals (observed − predicted) vs. predicted, line = binned mean; (c) cumulative distribution of absolute error; (d) MAE by prediction range."),
+        "classification-errors": (f"测试集混淆矩阵与各类别表现。(a) 按实际类别归一化的混淆矩阵；(b) 各类别的精确率、召回率与 F1。" + (f"类别编码：{key}。" if key else ""),
+                                  f"Test-set confusion matrix and per-class performance. (a) Confusion matrix normalised by true class; (b) precision, recall and F1 per class." + (f" Class codes: {key}." if key else "")),
+        "classification-discrimination": (f"测试集 ROC 曲线与精确率–召回率曲线（正类：{positive}）。虚线为随机水平。",
+                                          f"Test-set ROC and precision–recall curves (positive class: {positive}). Dashed lines show chance level."),
+        "probability-calibration": (f"校准曲线（正类：{positive}）。(a) 各概率区间的平均预测概率与实际正类比例，虚线为完美校准；(b) 各区间样本数。",
+                                    f"Calibration curve (positive class: {positive}). (a) Mean predicted probability vs. observed positive rate per bin, dashed line = perfect calibration; (b) samples per bin."),
+        "threshold-tradeoffs": ("不同决策阈值下的灵敏度、特异度与预测为正类的比例。虚线为默认阈值。",
+                                "Sensitivity, specificity and fraction predicted positive across decision thresholds. Dashed line = default threshold."),
+        "permutation-importance": (f"测试集置换重要性（Δ{metric}）。灰点为单次置换，蓝点与误差线为均值 ± SD。",
+                                   f"Test-set permutation importance (Δ{metric}). Grey = single permutations; blue = mean ± SD."),
+        "feature-correlation": ("训练集特征之间的 Spearman 相关。" + (f"编码：{key}。" if key else ""),
+                                "Spearman correlations between features in the training set." + (f" Codes: {key}." if key else "")),
+        "feature-shift": ("训练集与测试集的特征分布比较。左：标准化均值差（以训练集 SD 为单位）；右：缺失率。",
+                          "Feature distributions in training vs. test set. Left: standardised mean difference (training-set SD units); right: missing rate."),
+        "strata-performance": (f"测试集各{unit}的 {('MAE' if s['task'] == 'regression' else '准确率')}，括号内为样本量。",
+                               f"Test-set {('MAE' if s['task'] == 'regression' else 'accuracy')} by {unit}; sample sizes in parentheses."),
+        "parameter-search": ("参数搜索：各候选配置的交叉验证得分。", "Parameter search: cross-validated score of each candidate configuration."),
+    }
+    return captions.get(family, (tech, tech))[0 if zh else 1]
+
+
 def cjk_font_name():
     installed = {f.name for f in font_manager.fontManager.ttflist}
     return next((f for f in ("Noto Serif CJK SC", "Noto Sans CJK SC", "SimSun", "Microsoft YaHei",
@@ -252,10 +290,8 @@ def generate_report(directory, context=None, language=None):
     def figures(section):
         for family in SECTION_FIGURES[section]:
             for figure in by_family.get(family, []):
-                guide = FIGURES.get(family)
                 label = doc.figure(directory / "figures" / f"{figure['name']}.png",
-                                   (guide[0 if zh else 3] + T("。", ". ") if guide else "") + figure["caption"],
-                                   figure["source"])
+                                   paper_caption(family, figure, s, n, zh), figure["source"])
                 used.append((label, family))
 
     def labels_for(section):
@@ -455,7 +491,7 @@ def generate_report(directory, context=None, language=None):
             index.append([model_heading(row), f"{fmt(row['mean'])} ± {fmt(row.get('sd'))}",
                           STANDING[row["standing"]][0 if zh else 1], f"[{tag}.md](reports/{tag}.md)"])
         doc.table(T("各模型详细报告索引", "Index of per-model reports"),
-                  [T("模型", "Model"), T(f"验证{metric}", f"Validation {metric}"), T("判断", "Assessment"), T("文件", "File")], index)
+                  [T("模型", "Model"), T(f"CV {metric}（均值 ± SD）", f"CV {metric} (mean ± SD)"), T("结论", "Assessment"), T("文件", "File")], index)
     else:
         for row in facts["comparison"]:
             model_blocks(doc, row, 2)

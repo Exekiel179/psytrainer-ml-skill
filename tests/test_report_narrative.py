@@ -118,7 +118,9 @@ class FormattingTests(unittest.TestCase):
         self.assertEqual(fmt(1.967e-15), "0")
         self.assertEqual(fmt(1234.5), "1,234")
         self.assertEqual(fmt(.123456), "0.12")
-        self.assertEqual(fmt(.0031), "0.0031")
+        self.assertEqual(fmt(.0031), "0.003")
+        self.assertEqual(fmt(-1.4e-05), "0.00")
+        self.assertEqual(fmt(.9961), "0.996")
         self.assertEqual(interval(-.117, .15), "[-0.12, 0.15]")
         self.assertIsNone(interval(None, 1))
 

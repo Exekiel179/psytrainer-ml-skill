@@ -52,9 +52,13 @@ def fmt(value, digits=3):
         return "0"
     if abs(value) >= 1000:
         return f"{value:,.0f}"
+    if 0.995 <= abs(value) < 1:
+        return f"{value:.3f}"
     if abs(value) >= 0.01:
         return f"{value:.2f}"
-    return f"{value:.2g}"
+    if abs(value) >= 0.001:
+        return f"{value:.3f}"
+    return "0.00"
 
 
 def pct(value):
@@ -251,6 +255,30 @@ class Narrator:
             return ""
         return self.t(f"，可解释测试集中{self.target}约 {pct(r2)} 的变异", f", explaining about {pct(r2)} of the variance in {self.target}")
 
+    def summary_sentence(self):
+        """Interpretive one-liner without statistics, for the abstract and discussion."""
+        v, target, name = self.verdict(), self.target, self.model(self.s["selected_model"])
+        text = {
+            "supported": self.t(f"现有特征能够有效预测{target}，{name}在独立测试集上明显优于基线模型",
+                                f"The available features predicted {target} well; {name} clearly outperformed the baseline on the held-out test set"),
+            "supported_point": self.t(f"现有特征对{target}表现出一定的预测作用，但本次缺少区间估计",
+                                      f"The features showed some predictive value for {target}, although no interval estimate was available"),
+            "uncertain": self.t(f"现有特征对{target}的预测作用尚不明确，模型相对基线的优势不稳定",
+                                f"The predictive value of the features for {target} remains unclear; the advantage over the baseline was not reliable"),
+            "not_supported": self.t(f"现有特征未能有效预测{target}", f"The features did not predict {target} better than the baseline"),
+        }.get(v, self.t(f"无法评估现有特征对{target}的预测作用", f"Predictive value for {target} could not be assessed"))
+        if v in ("supported", "supported_point"):
+            imp = self.f.get("importance") or {}
+            leaders = imp.get("leaders") or []
+            if leaders:
+                text += self.t(f"，预测主要依赖{join([self.feature(x) for x in leaders], True)}",
+                               f", relying mainly on {join([self.feature(x) for x in leaders], False)}")
+            negligible = imp.get("negligible") or []
+            if negligible:
+                text += self.t(f"，{join([self.feature(x) for x in negligible], True)}几乎没有贡献",
+                               f", while {join([self.feature(x) for x in negligible], False)} contributed little")
+        return text + self.t("。", ".")
+
     def conclusion(self, leaders=True):
         v = self.verdict()
         target = self.target
@@ -319,7 +347,7 @@ class Narrator:
         return [("目的" if self.zh else "Objective", objective),
                 ("方法" if self.zh else "Methods", method),
                 ("结果" if self.zh else "Results", result.strip()),
-                ("结论" if self.zh else "Conclusion", self.conclusion(leaders=False) + self.t("", " ") + caveat)]
+                ("结论" if self.zh else "Conclusion", self.summary_sentence() + self.t("", " ") + caveat)]
 
     # ------------------------------------------------------------ key points
     def key_points(self):
@@ -529,10 +557,10 @@ class Narrator:
         dev, test = tgt.get("development") or {}, tgt.get("test") or {}
         if self.s["task"] == "regression" and dev.get("mean") is not None:
             out.append(self.t(
-                f"训练集目标变量均值 {fmt(dev['mean'])}（SD {fmt(dev.get('sd'))}，范围 {fmt(dev['min'])} 至 {fmt(dev['max'])}）；"
-                f"测试集均值 {fmt(test.get('mean'))}（SD {fmt(test.get('sd'))}，范围 {fmt(test.get('min'))} 至 {fmt(test.get('max'))}）。",
-                f"Training outcome mean {fmt(dev['mean'])} (SD {fmt(dev.get('sd'))}, range {fmt(dev['min'])} to {fmt(dev['max'])}); "
-                f"test mean {fmt(test.get('mean'))} (SD {fmt(test.get('sd'))}, range {fmt(test.get('min'))} to {fmt(test.get('max'))})."))
+                f"目标变量在训练集中 M = {fmt(dev['mean'])}, SD = {fmt(dev.get('sd'))}（范围 {fmt(dev['min'])} 至 {fmt(dev['max'])}），"
+                f"在测试集中 M = {fmt(test.get('mean'))}, SD = {fmt(test.get('sd'))}（范围 {fmt(test.get('min'))} 至 {fmt(test.get('max'))}）。",
+                f"{self.target} had M = {fmt(dev['mean'])}, SD = {fmt(dev.get('sd'))} (range {fmt(dev['min'])} to {fmt(dev['max'])}) in the training set "
+                f"and M = {fmt(test.get('mean'))}, SD = {fmt(test.get('sd'))} (range {fmt(test.get('min'))} to {fmt(test.get('max'))}) in the test set."))
         elif dev.get("counts"):
             def counts(entry):
                 total = sum(entry.values()) or 1
@@ -603,9 +631,6 @@ class Narrator:
         out = []
         if len(rows) > 1:
             out.append(self.model_comparison_sentence(reading=False))
-            reading = self.family_reading()
-            if reading:
-                out.append(reading if reading.endswith(("。", ".")) else reading + self.t("。", "."))
         positive = sel.get("baseline_gain_positive_folds")
         if positive is not None:
             text = self.t(f"交叉验证中，最终模型在 {positive}/{sel['folds']} 折都优于基线模型",
@@ -636,14 +661,14 @@ class Narrator:
     def discussion(self):
         s, f = self.s, self.f
         paras = []
-        main = self.conclusion()
+        main = self.t("总体而言，", "Overall, ") + (self.summary_sentence() if self.zh else self.summary_sentence()[:1].lower() + self.summary_sentence()[1:])
         secondary = "" if self.variance_clause() else self.secondary_test_clause()
         reg = self.f.get("regression") or {}
         if self.variance_clause() and reg.get("within_tolerance") is not None:
             secondary = self.t(f"绝对误差 ≤ {fmt(reg['tolerance'])}{self.unit}的测试样本占 {pct(reg['within_tolerance'])}",
                                f"{pct(reg['within_tolerance'])} of test samples had absolute error ≤ {fmt(reg['tolerance'])}{self.unit}")
         if secondary:
-            main += self.t(f"此外，{secondary}。", f" In addition, {secondary}.")
+            main += self.t(f"在测试集上，{secondary}。", f" On the test set, {secondary}.")
         paras.append(main)
         reading = self.family_reading()
         if reading:
@@ -651,7 +676,10 @@ class Narrator:
         paras.append(self.strength_paragraph())
         flags = self.data_flags()
         if flags:
-            paras.append(self.t("有几点数据特征会影响上述结论的解读：", "Several data characteristics qualify these conclusions: ") + self.t("", " ").join(flags))
+            lead = (self.t("需要注意的是，", "Note that ") if len(flags) == 1 else
+                    self.t("以下数据特征会影响上述结论的解读：", "Several data characteristics qualify these conclusions: "))
+            body = self.t("", " ").join(flags)
+            paras.append(lead + (body if self.zh or len(flags) > 1 else body[:1].lower() + body[1:]))
         paras.append(self.limitations_paragraph())
         return paras
 

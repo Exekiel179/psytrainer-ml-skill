@@ -83,22 +83,35 @@ PER_MODEL_SPLIT_THRESHOLD = 4
 
 
 def validation_methods(s, zh):
-    designs = {
-        'random': ('训练集内部采用分层随机交叉验证。' if s['task'] == 'classification' else '训练集内部采用随机 K 折交叉验证。',
-                   'Development cross-validation was stratified by class.' if s['task'] == 'classification' else 'Development data used shuffled K-fold cross-validation.'),
-        'group': ('训练集与测试集的组别互不重叠，训练集内部采用 GroupKFold，验证折同样按组隔离。组标识仅用于划分，不作为预测特征。',
-                  'Development and test groups are disjoint. GroupKFold also separates groups within training data; group identifiers are used only for splitting.'),
-        'time': (f"样本按唯一时间值划分为有序块，采用前向交叉验证；训练记录早于验证记录，同一时间值不跨越划分边界。训练末端排除 {s['gap']} 个时间块作为间隔。",
-                 f"Forward cross-validation uses ordered unique time blocks. Training precedes validation, equal timestamps remain together, and a gap of {s['gap']} blocks excludes the end of each training partition."),
-    }
-    source = ('另行提供的外部数据' if s['external_test'] else '模型选择前从输入数据划出的内部留出集') if zh else (
-        'separately supplied external data' if s['external_test'] else 'an internal holdout reserved before model selection')
-    lines = [f"测试集来源为{source}。" if zh else f"The test set comprises {source}.", designs[s['split']][0 if zh else 1]]
-    lines.append((f"训练集的 {s['cv_folds']} 折验证用于比较候选模型，每折在训练折拟合模型，在未参与该折拟合的记录上计算验证指标。"
-                  "选定配置后，在完整训练集重新拟合，再评价测试集。" if zh else
-                  f"The {s['cv_folds']} training folds compare candidates by fitting on each training partition and scoring records excluded from that fit. The selected configuration is refitted on all training records before test evaluation."))
-    lines.append(f"随机过程使用种子 {s['seed']}。" if zh else f"Stochastic operations use seed {s['seed']}.")
-    return lines
+    dev, test, k = s.get('development_n'), s.get('test_n'), s['cv_folds']
+    share = round(100 * test / (dev + test)) if dev and test else None
+    if s['external_test']:
+        split = (f"训练集为全部输入数据（n = {dev}），测试集为另行提供的外部数据（n = {test}）。" if zh else
+                 f"All input data formed the training set (n = {dev}); a separately supplied external set formed the test set (n = {test}).")
+    elif s['split'] == 'group':
+        split = (f"数据按组划分为训练集（n = {dev}）和测试集（n = {test}），同一组的样本只出现在其中一个集合中。" if zh else
+                 f"Data were split by group into training (n = {dev}) and test (n = {test}) sets, so that each group appears in only one set.")
+    elif s['split'] == 'time':
+        split = (f"数据按时间顺序划分：较早的数据作为训练集（n = {dev}），最近的时间段作为测试集（n = {test}）。" if zh else
+                 f"Data were split chronologically: earlier records formed the training set (n = {dev}) and the most recent period the test set (n = {test}).")
+    else:
+        ratio = f"按 {100 - share}:{share} " if share else ""
+        ratio_en = f"{100 - share}:{share} " if share else ""
+        split = (f"数据{ratio}随机划分为训练集（n = {dev}）和测试集（n = {test}）" + ("，按类别分层" if s['task'] == 'classification' else "") + "。" if zh else
+                 f"Data were randomly split {ratio_en}into training (n = {dev}) and test (n = {test}) sets" + (", stratified by class" if s['task'] == 'classification' else "") + ".")
+    hold = ("测试集在模型选择前预留，不参与任何训练、调参或预处理。" if zh else
+            "The test set was held out before model selection and used for no training, tuning or preprocessing.")
+    cv = {
+        'random': (f"在训练集上进行 {k} 折交叉验证" + ("（分层）" if s['task'] == 'classification' else "") + "以比较候选模型。",
+                   f"Candidate models were compared by {k}-fold cross-validation" + (" (stratified)" if s['task'] == 'classification' else "") + " on the training set."),
+        'group': (f"在训练集上进行 {k} 折分组交叉验证（GroupKFold），验证折同样按组隔离；组标识只用于划分，不作为特征。",
+                  f"Candidates were compared by {k}-fold grouped cross-validation (GroupKFold) on the training set; group identifiers were used only for splitting."),
+        'time': (f"在训练集上进行 {k} 折前向时间序列交叉验证（训练数据总早于验证数据），两者之间间隔 {s['gap']} 个时间块。",
+                 f"Candidates were compared by {k}-fold forward time-series cross-validation (training always precedes validation) with a gap of {s['gap']} time blocks."),
+    }[s['split']][0 if zh else 1]
+    refit = (f"最终模型在完整训练集上重新训练后，在测试集上评估一次。随机种子为 {s['seed']}。" if zh else
+             f"The final model was refitted on the full training set and evaluated once on the test set. Random seed: {s['seed']}.")
+    return [split, hold if not s['external_test'] else "", cv, refit]
 
 
 def uncertainty_description(interval, zh):
@@ -127,33 +140,40 @@ def uncertainty_description(interval, zh):
 
 def preprocessing(s, zh):
     p = s['preprocessing']
-    lines = []
-    def add(cn, en):
-        lines.append(cn if zh else en)
+    steps, notes = [], []
+
+    def step(cn, en):
+        steps.append(cn if zh else en)
+
     if p.get('impute') == 'median':
-        add("缺失预测变量以训练样本中对应特征的中位数填补，使不完整记录能够进入后续分析。填充值仅从训练折估计。", "Missing predictors are replaced by the corresponding training-feature median, allowing incomplete records to enter the analysis. Replacement values are estimated from training data only.")
-    else:
-        add("本次未进行缺失值填补，分析要求预测变量完整。", "No imputation is applied; complete predictors are required.")
+        step("缺失值以训练数据中该特征的中位数插补", "median imputation of missing values")
     if p.get('scale'):
-        add(("数值缩放采用最小值和最大值归一化，将训练范围映射到 0–1。新样本超出训练范围时可以超过这个区间。" if p.get('scaler') == 'minmax' else "数值标准化将每项特征减去训练均值并除以训练标准差，使不同计量单位更容易共同参与建模。"),
-            ("Min-max scaling maps the training range to 0–1; new values can fall outside it." if p.get('scaler') == 'minmax' else "Standardization subtracts training means and divides by training standard deviations, bringing differing measurement scales into a comparable range."))
-    else:
-        add("本次不进行数值缩放，特征保留原始尺度。", "Features retain their original scales; no scaling is applied.")
+        step("min-max 归一化（缩放到 0–1）" if p.get('scaler') == 'minmax' else "z 标准化",
+             "min-max scaling to 0–1" if p.get('scaler') == 'minmax' else "z-standardisation")
     selection = p.get('selection')
     if selection == 'forward':
-        add(f"逐步前向筛选从较少特征开始，利用训练折的内部验证逐项尝试加入信息。本次选择数量设置为 {p.get('select_k') or '自动'}；它只寻找当前搜索路径上的改善，不保证找到了所有可能组合中的最优解。", f"Forward selection adds features using validation within training data; requested count is {p.get('select_k') or 'automatic'}. This searches one path, not every possible subset.")
+        step(f"前向逐步特征筛选（保留 {p.get('select_k') or '自动确定'} 个特征，使用训练折内部的交叉验证）",
+             f"forward stepwise feature selection ({p.get('select_k') or 'automatic'} features, inner cross-validation)")
     elif selection == 'f-threshold':
-        add(f"特征筛选保留 F 统计量不低于 {p.get('f_threshold')} 的输入。该分数评价单个预测变量与结局的关联，可能遗漏仅在变量组合中体现的信息。", f"F-threshold selection retains inputs at or above {p.get('f_threshold')}. It assesses individual associations and can miss interactions.")
+        step(f"单变量 F 检验筛选（保留 F 值不低于 {p.get('f_threshold')} 的特征）", f"univariate F-test selection (F ≥ {p.get('f_threshold')})")
     elif p.get('select_k'):
-        add(f"根据单变量关联分数保留 {p['select_k']} 个特征。各特征分别评分，因此筛选结果侧重其单独关联，可能遗漏交互信息。", f"The top {p['select_k']} individually scored features are retained. This prioritizes marginal associations and can miss interactions.")
-    else:
-        add("本次不做特征筛选，全部输入特征进入后续步骤。", "No feature selection is applied; all inputs enter subsequent steps.")
+        step(f"单变量筛选保留 {p['select_k']} 个特征", f"univariate selection of the top {p['select_k']} features")
     if p.get('pca'):
-        add(f"主成分分析（PCA）将处理后的特征压缩为 {p['pca']} 个综合成分。各成分是原特征的加权组合，以保留输入变异为目标；这一降维准则与最大化结局预测能力并不相同。", f"Principal component analysis (PCA) compresses processed inputs into {p['pca']} weighted components. It preserves input variation, an objective distinct from maximizing outcome prediction.")
+        step(f"主成分分析（PCA）降维至 {p['pca']} 个成分", f"principal component analysis (PCA) to {p['pca']} components")
     if p.get('resample', 'none') != 'none':
-        add(f"训练时采用 {p['resample']} 调整类别样本构成，以改变不同类别对模型拟合的贡献。重采样仅作用于训练折，验证与测试保持原始样本构成。", f"Training uses {p['resample']} to alter class representation and its contribution to model fitting. Resampling is confined to training partitions; validation and test retain their original composition.")
-    add("上述处理构成统一的 Pipeline：每折仅用训练折估计预处理参数，并将其应用于该折验证数据。最终在完整训练集拟合的预处理与模型一并保存，用于测试和后续预测。", "These steps form one Pipeline. Preprocessing parameters are estimated within each training fold and applied to its validation data. The final training-fitted preprocessing and estimator are saved together for test evaluation and subsequent predictions.")
-    return lines
+        step(f"对训练数据进行类别重采样（{p['resample']}），验证与测试数据不重采样",
+             f"class resampling of training data ({p['resample']}); validation and test data were not resampled")
+    if not steps:
+        lead = ("未进行缺失值插补或缩放，" if zh else "No imputation or scaling was applied; ")
+    else:
+        lead = ("预处理包括：" + "、".join(steps) + "。" if zh else "Preprocessing comprised " + ", ".join(steps) + ". ")
+    if p.get('impute') != 'median':
+        notes.append("本次未进行缺失值插补，要求特征完整。" if zh else "No imputation was applied; complete features were required. ")
+    if not selection or (selection == 'kbest' and not p.get('select_k')):
+        notes.append("本次不做特征筛选，全部特征进入模型。" if zh else "No feature selection was applied. ")
+    leak = ("所有步骤封装在 scikit-learn Pipeline 中，只在训练折上拟合，以避免数据泄漏。" if zh else
+            "All steps were wrapped in a scikit-learn Pipeline fitted on training folds only, to prevent data leakage.")
+    return [lead if steps else "", *notes, leak]
 
 
 # Each entry explains the exact axes and marks of a generated diagnostic family.
