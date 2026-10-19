@@ -16,7 +16,8 @@ REQUIRED = {
     "SKILL.md", "requirements.txt", "scripts/install_runtime.py",
     "scripts/pipeline_train.py", "scripts/pipeline_options.py",
     "scripts/runtime_dependencies.py",
-    "scripts/report_explanations.py", "references/setup.md",
+    "scripts/report_explanations.py", "scripts/report_facts.py",
+    "scripts/report_narrative.py", "scripts/report_document.py", "references/setup.md",
 }
 
 

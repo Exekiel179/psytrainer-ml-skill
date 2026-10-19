@@ -1,0 +1,7 @@
+{
+  "target_label": "分数",
+  "target_unit": "分",
+  "tolerance": 0.25,
+  "feature_labels": {"signal": "信号", "baseline": "基线测量", "noise": "噪声", "age": "年龄"},
+  "background": "合成样例数据：分数由信号和基线测量线性生成，噪声与年龄不含信息。"
+}

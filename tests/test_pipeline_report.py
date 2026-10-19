@@ -85,18 +85,51 @@ class PipelineReportTests(unittest.TestCase):
                  patch("pipeline_analysis.analyze", return_value=json.loads((root / "analysis.json").read_text())):
                 pipeline_report.generate_report(root)
             text = (root / "report.md").read_text(encoding="utf-8")
-            self.assertIn("摘要", text)
-            self.assertIn("各模型结果", text)
-            self.assertIn("线性回归", text)
-            self.assertIn("随机森林回归器", text)
-            self.assertIn("附录 模型验证汇总", text)
+            for section in ("## 摘要", "## 要点", "## 1 方法", "### 2.1 模型比较", "### 2.2 测试集表现",
+                            "## 3 讨论", "附录 A 各候选模型的详细结果"):
+                self.assertIn(section, text)
+            self.assertIn("**结论**", text)
+            self.assertIn("有效信息", text)
+            self.assertIn("### 线性回归（选定）", text)
+            self.assertIn("### 随机森林回归器", text)
+            for label in ("主张：", "证据：", "阐释：", "lightgbm None"):
+                self.assertNotIn(label, text)
+            # Markdown tables must be contiguous: no blank line between rows.
+            lines = text.splitlines()
+            for i, line in enumerate(lines[:-2]):
+                if line.startswith("|") and lines[i + 1] == "":
+                    self.assertFalse(lines[i + 2].startswith("|"), f"broken table near line {i}")
             self.assertFalse((root / "reports").exists())
+            # The Word file is written to its own path and never over a figure.
+            self.assertEqual(Image.open(figures / "cv-comparison.png").format, "PNG")
             from docx import Document
             doc = Document(root / "report.docx")
             headings = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
-            self.assertIn("各模型结果", headings)
+            self.assertIn("2.1 模型比较", headings)
             self.assertTrue(any("线性回归" in h for h in headings))
             self.assertGreaterEqual(len(doc.tables), 3)
+
+    def test_context_and_language_override_on_regeneration(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._write_run(root, ["ModelLRRegressor", "ModelRandomForestRegressor"])
+            context = root / "ctx.json"
+            context.write_text(json.dumps({"target_label": "Depression score", "target_unit": "points",
+                                           "tolerance": 0.3}), encoding="utf-8")
+            with patch.object(pipeline_report, "plots", return_value=[]), \
+                 patch("pipeline_analysis.analyze", return_value=json.loads((root / "analysis.json").read_text())):
+                pipeline_report.generate_report(root, context=context, language="en")
+                text = (root / "report.md").read_text(encoding="utf-8")
+                self.assertIn("Depression score", text)
+                self.assertIn("## Abstract", text)
+                self.assertIn("within the prespecified tolerance", text)
+                self.assertTrue((root / "report-context.json").is_file())
+                pipeline_report.generate_report(root)  # saved context persists
+            self.assertIn("Depression score", (root / "report.md").read_text(encoding="utf-8"))
+            bad = root / "bad.json"
+            bad.write_text(json.dumps({"colour": "blue"}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                pipeline_report.generate_report(root, context=bad)
 
     def test_large_runs_write_per_model_reports_and_index(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -115,7 +148,10 @@ class PipelineReportTests(unittest.TestCase):
                 self.assertTrue((reports / f"{tag}.docx").is_file())
             overview = (root / "report.md").read_text(encoding="utf-8")
             self.assertIn("reports/ModelLRRegressor.md", overview)
-            self.assertIn("单独撰写结果报告", overview)
+            self.assertIn("单独成文", overview)
+            detail = (reports / "ModelRandomForestRegressor.md").read_text(encoding="utf-8")
+            self.assertIn("逐折结果", detail)
+            self.assertIn("折间标准差", detail)
 
 
 if __name__ == "__main__":
