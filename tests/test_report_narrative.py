@@ -32,7 +32,7 @@ def facts(primary=None, comparison=None, **extra):
                                 "relative": .905},
          "tests": {}, "regression": {}, "classification": {}, "importance": {}, "shift": {},
          "strata": {}, "target": {}, "interval": {}, "features": [],
-         "strength": {"strengths": [], "weaknesses": []}, "family_reading": "linear_best"}
+         "strength": {"strengths": [], "weaknesses": []}, "family_reading": "linear_best", "level": "full"}
     f["tests"]["mae"] = f["primary"]
     f.update(extra)
     return f
@@ -111,6 +111,31 @@ class NarrativeTests(unittest.TestCase):
         steps = " ".join(Narrator(summary(), f, True).next_steps())
         self.assertIn("过拟合", steps)
         self.assertIn("不要依据本次测试结果重新排序", steps)
+
+
+class BasicLevelTests(unittest.TestCase):
+    def test_basic_answers_without_baseline_ci_or_data_flags(self):
+        from report_facts import basic_view
+        f = facts(shift={"missing": [{"feature": "noise", "development": .05, "test": .21}], "mean_shift": [], "out_of_range": []},
+                  strength={"strengths": [("gain_interval", (.98, 2.09))], "weaknesses": [("small_test", 24)]})
+        f["tests"]["r2"] = {"metric": "r2", "estimate": .99, "lower": .97, "upper": .99}
+        f = basic_view(f)
+        f["level"] = "basic"
+        for zh in (True, False):
+            n = Narrator(summary(), f, zh)
+            text = " ".join(t for _, t in n.abstract()) + " ".join(n.key_points()) + " ".join(n.discussion()) + \
+                " ".join(n.evaluation_methods({"method": "row percentile bootstrap", "requested_repeats": 100, "units": 24}))
+            for term in ("95% CI", "DummyRegressor", "基线", "baseline", "noise", "bootstrap"):
+                self.assertNotIn(term, text)
+            self.assertIn("99%", text)
+        zh = Narrator(summary(), f, True)
+        self.assertIn("现有特征可以预测", zh.summary_sentence())
+        self.assertIn("测试集只有 24 个样本", zh.strength_paragraph())
+
+    def test_bagged_trees_are_not_flagged_as_overfitting(self):
+        n = Narrator(summary(), facts(), True)
+        self.assertFalse(n.overfit({"family": "bagging", "train_gap": .4, "mean": .4}))
+        self.assertTrue(n.overfit({"family": "boosting", "train_gap": .4, "mean": .4}))
 
 
 class FormattingTests(unittest.TestCase):

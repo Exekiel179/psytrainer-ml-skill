@@ -626,6 +626,7 @@ def run(args):
                "importance_repeats": args.repeats, "failures": failures, "warnings": warnings,
                "question": args.question, "language": args.language,
                "target_summary": target_summary,
+               "analysis_level": args.analysis,
                "permutation_test": permutation,
                "positive_class": report_classes[1] if report_classes and len(report_classes) == 2 else None,
                "model_backend": "local-registry/v1", "model_parameters": parameters,
@@ -718,6 +719,8 @@ def parser():
     t.add_argument("--positive-class", help="Binary classification: class treated as positive for AUC, AP, calibration and thresholds")
     t.add_argument("--permutations", type=int, default=0,
                    help="Label-permutation test of test performance (refits the final model N times; 0 disables, e.g. 1000)")
+    t.add_argument("--analysis", choices=("basic", "full"), default="basic",
+                   help="Report depth: basic (default) omits baseline comparison, bootstrap CIs and train/test comparability; full includes them")
     t.add_argument("--language", choices=("zh", "en"), default="zh")
     t.add_argument("--question", default="")
     t.add_argument("--context", type=Path,
@@ -730,6 +733,7 @@ def parser():
     r.add_argument("directory", type=Path)
     r.add_argument("--context", type=Path, help="JSON report context saved as report-context.json for later regenerations")
     r.add_argument("--language", choices=("zh", "en"), help="Override the run's report language")
+    r.add_argument("--analysis", choices=("basic", "full"), help="Override the report depth")
     return p
 
 
@@ -745,7 +749,7 @@ def main(argv=None):
                 from runtime_dependencies import REPORT, ensure
                 ensure(REPORT)
             from pipeline_report import generate_report
-            generate_report(args.directory, context=args.context, language=args.language)
+            generate_report(args.directory, context=args.context, language=args.language, analysis=args.analysis)
             value = {"report": str((args.directory / "report.docx").resolve()),
                      "markdown": str((args.directory / "report.md").resolve())}
         print(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")))

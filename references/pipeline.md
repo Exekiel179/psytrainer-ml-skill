@@ -175,6 +175,16 @@ with no LLM calls, invented references or novelty claims. Report regeneration
 reads JSON/CSVs rather than loading a pickle or retraining; `report DIR
 --language en` switches language and `report DIR --context ctx.json` adds context.
 
+### Analysis level
+
+`--analysis basic` (default) reports test metrics as plain values and answers the
+question from natural references (R² > 0 for regression; chance level for
+balanced accuracy/AUC; the permutation test when requested). It omits the dummy
+baseline comparison, bootstrap CIs, training/test comparability (mean shift,
+missingness, out-of-range) and their figures. `--analysis full` restores all of
+them. Both levels compute the same artifacts on disk; the level only changes the
+report, so `report DIR --analysis full|basic` switches without retraining.
+
 ### Report structure
 
 1. **Abstract** (objective / methods / results / conclusion) and numbered **key

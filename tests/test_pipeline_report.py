@@ -37,7 +37,7 @@ class PipelineReportTests(unittest.TestCase):
                               "selection": "none", "f_threshold": 5, "forward_tol": 0, "pca": 0,
                               "resample": "none"},
             "importance_repeats": 2, "failures": [], "warnings": [],
-            "question": "", "language": "zh", "model_backend": "local-registry/v1",
+            "question": "", "language": "zh", "analysis_level": "full", "model_backend": "local-registry/v1",
             "model_parameters": {}, "versions": {"scikit-learn": "1.5.0"},
             "inputs": {}, "arguments": {}, "estimator_parameters": {},
         }
@@ -112,6 +112,19 @@ class PipelineReportTests(unittest.TestCase):
             self.assertIn("2.1 模型比较", headings)
             self.assertTrue(any("线性回归" in h for h in headings))
             self.assertGreaterEqual(len(doc.tables), 3)
+
+    def test_basic_level_omits_baseline_intervals_and_comparability(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            self._write_run(root, ["ModelLRRegressor", "ModelRandomForestRegressor"])
+            with patch.object(pipeline_report, "plots", return_value=[]), \
+                 patch("pipeline_analysis.analyze", return_value=json.loads((root / "analysis.json").read_text())):
+                pipeline_report.generate_report(root, analysis="basic")
+            text = (root / "report.md").read_text(encoding="utf-8")
+            for term in ("95% CI", "DummyRegressor", "基线模型", "bootstrap", "可比性", "优于基线的折数"):
+                self.assertNotIn(term, text)
+            for term in ("## 摘要", "### 2.1 模型比较", "### 2.2 测试集表现", "| 指标 | 数值 |"):
+                self.assertIn(term, text)
 
     def test_context_and_language_override_on_regeneration(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -390,6 +390,23 @@ def evidence_strength(s, primary, comparison, selected):
     return notes
 
 
+def basic_view(facts):
+    """Drop baseline comparison, bootstrap intervals and train/test comparability (basic reports)."""
+    for row in list(facts["tests"].values()) + [facts["primary"]]:
+        for key in ("lower", "upper", "baseline", "gain", "gain_lower", "gain_upper", "relative"):
+            row[key] = None
+    for row in facts["comparison"]:
+        for key in ("baseline_gain_mean", "baseline_gain_positive_folds"):
+            row.pop(key, None)
+        for fold in row.get("fold_table") or []:
+            fold["baseline"] = None
+    facts["shift"] = {}
+    keep = {"small_test", "large_test", "clear_selection", "close_runner_up", "external_test", "permutation"}
+    for side in ("strengths", "weaknesses"):
+        facts["strength"][side] = [(code, value) for code, value in facts["strength"][side] if code in keep]
+    return facts
+
+
 def collect(directory, s, analysis):
     directory = Path(directory)
     context = load_context(directory)
@@ -411,8 +428,9 @@ def collect(directory, s, analysis):
         "features": feature_names(directory),
     }
     facts["strength"] = evidence_strength(s, primary, comparison, selected)
+    facts["level"] = s.get("analysis_level", "basic")
     families = {r["family"] for r in comparison}
     if selected and len(comparison) > 1 and "linear" in families and families & NONLINEAR:
         facts["family_reading"] = "linear_best" if selected["family"] == "linear" else (
             "nonlinear_best" if selected["family"] in NONLINEAR else None)
-    return facts
+    return basic_view(facts) if facts["level"] == "basic" else facts

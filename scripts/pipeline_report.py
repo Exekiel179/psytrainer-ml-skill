@@ -299,8 +299,11 @@ def paper_caption(family, figure, s, n, zh):
     ci = "误差线为 95% CI（测试集 bootstrap）。" if (n.f.get("interval") or {}).get("omitted_reason") is None else ""
     ci_en = "Error bars are 95% CIs (test-set bootstrap). " if ci else ""
     captions = {
-        "model-validation": (f"各候选模型的交叉验证表现。(a) 每折的训练得分（灰）与验证得分（蓝）；(b) 每折中模型相对基线模型的提升，正值表示优于基线，绿色为均值 ± SD。",
-                             f"Cross-validated performance of candidate models. (a) Training (grey) and validation (blue) scores per fold; (b) improvement over the baseline per fold (positive = better), green = mean ± SD."),
+        "model-validation": ((f"各候选模型的交叉验证表现：每折的训练得分（灰）与验证得分（蓝）。",
+                              f"Cross-validated performance of candidate models: training (grey) and validation (blue) scores per fold.")
+                             if s.get("analysis_level", "basic") == "basic" else
+                             (f"各候选模型的交叉验证表现。(a) 每折的训练得分（灰）与验证得分（蓝）；(b) 每折中模型相对基线模型的提升，正值表示优于基线，绿色为均值 ± SD。",
+                              f"Cross-validated performance of candidate models. (a) Training (grey) and validation (blue) scores per fold; (b) improvement over the baseline per fold (positive = better), green = mean ± SD.")),
         "test-performance": (f"最终模型与基线模型在测试集上的 {metric}。{ci}", f"Test-set {metric} of the final model and the baseline. {ci_en}"),
         "permutation-test": (f"置换检验。灰色直方图为将训练集标签随机打乱 {(s.get('permutation_test') or {}).get('valid')} 次、每次重新训练后在测试集上得到的 {metric}（即特征不含信息时的成绩分布）；蓝线为实际模型的成绩。",
                              f"Permutation test. Grey histogram: test-set {metric} after refitting on randomly shuffled training labels ({(s.get('permutation_test') or {}).get('valid')} permutations), i.e. performance when features carry no information; blue line: observed score."),
@@ -343,7 +346,10 @@ def save_context(directory, context):
         json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def generate_report(directory, context=None, language=None):
+ANALYSIS_LEVELS = ("basic", "full")
+
+
+def generate_report(directory, context=None, language=None, analysis=None):
     from report_document import ReportDocument
     from report_explanations import (FIGURES, METRICS, PER_MODEL_SPLIT_THRESHOLD, preprocessing,
                                      validation_methods)
@@ -355,6 +361,10 @@ def generate_report(directory, context=None, language=None):
     s = json.loads((directory / "summary.json").read_text(encoding="utf-8"))
     if language:
         s["language"] = language
+    if analysis:
+        s["analysis_level"] = analysis
+    s.setdefault("analysis_level", "basic")
+    basic = s["analysis_level"] == "basic"
     from pipeline_analysis import analyze
     analysis = analyze(directory, s)
     captions = plots(directory, s)
@@ -373,8 +383,11 @@ def generate_report(directory, context=None, language=None):
     def figures(section):
         for family in SECTION_FIGURES[section]:
             for figure in by_family.get(family, []):
+                source = figure["source"]
+                if basic:
+                    source = "; ".join(x for x in source.split("; ") if not x.startswith("baseline"))
                 label = doc.figure(directory / "figures" / f"{figure['name']}.png",
-                                   paper_caption(family, figure, s, n, zh), figure["source"])
+                                   paper_caption(family, figure, s, n, zh), source)
                 used.append((label, family))
 
     def labels_for(section):
@@ -431,6 +444,8 @@ def generate_report(directory, context=None, language=None):
     headers = [T("模型", "Model"), T("类型", "Family"), T(f"CV {metric}（均值 ± SD）", f"CV {metric} (mean ± SD)"),
                T("各折范围", "Fold range"), T(f"训练集 {metric}", f"Train {metric}"), T("优于基线的折数", "Folds beating baseline"),
                T("结论", "Assessment")]
+    if basic:
+        headers.pop(5)
     rows = []
     for row in facts["comparison"]:
         rows.append([n.model(row["model"]) + (" *" if row["standing"] in ("selected", "sole") else ""), n.family(row["family"]),
@@ -439,6 +454,8 @@ def generate_report(directory, context=None, language=None):
                      fmt(row.get("train_mean")),
                      f"{row['baseline_gain_positive_folds']}/{row['folds']}" if row.get("baseline_gain_positive_folds") is not None else "NA",
                      STANDING[row["standing"]][0 if zh else 1]])
+        if basic:
+            rows[-1].pop(5)
     doc.table(T("候选模型的交叉验证表现", "Cross-validated performance of candidate models"), headers, rows,
               T(f"* 最终模型。{metric}{n.better()}。CV 为交叉验证（验证折上的得分）；训练集{metric}为各折训练部分上的平均得分，若远好于 CV 得分则提示过拟合。“结论”按与最终模型的差距相对交叉验证标准差划分：≤1 倍为相当，1–3 倍为较弱，>3 倍为明显较弱。逐折结果见附录 A。",
                 f"* Final model. {metric}: {n.better()}. CV = cross-validated score on validation folds; Train {metric} is the mean score on the training part of each fold, and a much better train score than CV suggests overfitting. Assessment compares the gap to the final model with the CV SD: ≤1× comparable, 1–3× weaker, >3× clearly weaker. Fold-level results in Appendix A."))
@@ -460,10 +477,16 @@ def generate_report(directory, context=None, language=None):
         test_rows.append([n.mlabel(key) + (" *" if key == n.metric else ""), fmt(row.get("estimate")),
                           interval(row.get("lower"), row.get("upper")) or "NA",
                           fmt(row.get("baseline")), (fmt(gain) + (f" {gci}" if gci else "")) if gain is not None else "—"])
-    doc.table(T("最终模型在测试集上的表现", "Test-set performance of the selected model"),
-              [T("指标", "Metric"), T("最终模型", "Final model"), T("95% CI", "95% CI"), T("基线模型", "Baseline"), T("相对基线的提升（95% CI）", "Improvement over baseline (95% CI)")],
-              test_rows, T(f"* 主要指标。基线模型：{n.baseline_rule()}。“相对基线的提升”为模型优于基线的幅度（误差类指标为基线减模型，得分类指标为模型减基线），正值表示模型更好；95% CI 由测试集 bootstrap 得到，不包含 0 说明提升稳定。NA/— 表示无法计算。",
-                           f"* Primary metric. Baseline: {n.baseline_rule()}. Improvement = how much the model beats the baseline (baseline − model for errors, model − baseline for scores); positive favours the model, and a 95% CI (test-set bootstrap) excluding 0 indicates a reliable improvement. NA/— = not computable."))
+    if basic:
+        test_rows = [row[:2] for row in test_rows if row[0].rstrip(" *") != n.mlabel("bias")]
+        doc.table(T("最终模型在测试集上的表现", "Test-set performance of the final model"),
+                  [T("指标", "Metric"), T("数值", "Value")], test_rows,
+                  T("* 主要指标。", "* Primary metric."))
+    else:
+        doc.table(T("最终模型在测试集上的表现", "Test-set performance of the selected model"),
+                  [T("指标", "Metric"), T("最终模型", "Final model"), T("95% CI", "95% CI"), T("基线模型", "Baseline"), T("相对基线的提升（95% CI）", "Improvement over baseline (95% CI)")],
+                  test_rows, T(f"* 主要指标。基线模型：{n.baseline_rule()}。“相对基线的提升”为模型优于基线的幅度（误差类指标为基线减模型，得分类指标为模型减基线），正值表示模型更好；95% CI 由测试集 bootstrap 得到，不包含 0 说明提升稳定。NA/— 表示无法计算。",
+                               f"* Primary metric. Baseline: {n.baseline_rule()}. Improvement = how much the model beats the baseline (baseline − model for errors, model − baseline for scores); positive favours the model, and a 95% CI (test-set bootstrap) excluding 0 indicates a reliable improvement. NA/— = not computable."))
     figures("test")
 
     error_text = n.error_sentence()
@@ -491,7 +514,7 @@ def generate_report(directory, context=None, language=None):
         figures("predictors")
 
     shift = facts.get("shift") or {}
-    if by_family.get("feature-shift") or shift:
+    if not basic and (by_family.get("feature-shift") or shift):
         doc.heading(T("2.5 训练集与测试集的可比性", "2.5 Comparability of training and test data"), 2)
         flags = [x for x in n.data_flags() if "分层" not in x and "Across test" not in x]
         if flags:
@@ -527,11 +550,11 @@ def generate_report(directory, context=None, language=None):
     doc.heading(T("附录 A 各候选模型的详细结果", "Appendix A Detailed results by model"), page_break=True)
     split_models = len(facts["comparison"]) >= PER_MODEL_SPLIT_THRESHOLD
     fold_headers = [T("折", "Fold"), T("训练 n", "Train n"), T("验证 n", "Validation n"), T("训练得分", "Train score"),
-                    T("验证得分", "Validation score"), T("基线（验证折）", "Baseline (validation fold)")]
+                    T("验证得分", "Validation score"), T("基线（验证折）", "Baseline (validation fold)")][:5 if basic else 6]
 
     def fold_rows(row):
         return [[str(r["fold"]), str(r["train_n"] or "NA"), str(r["validation_n"] or "NA"), fmt(r["train_score"]),
-                 fmt(r["score"]), fmt(r["baseline"])] for r in row.get("fold_table") or []]
+                 fmt(r["score"]), fmt(r["baseline"])][:5 if basic else 6] for r in row.get("fold_table") or []]
 
     def model_heading(row):
         mark = T("（最终模型）", " (final model)") if row["standing"] in ("selected", "sole") else ""

@@ -125,6 +125,7 @@ class Narrator:
         self.s, self.f, self.zh = s, facts, zh
         self.ctx = facts.get("context") or {}
         self.metric = {"f1": "f1_macro", "precision": "precision_macro", "recall": "recall_macro"}.get(s["metric"], s["metric"])
+        self.basic = facts.get("level", "basic") == "basic"
 
     # ------------------------------------------------------------ names
     def t(self, zh, en):
@@ -185,8 +186,17 @@ class Narrator:
     def better(self):
         return self.t("越低越好", "lower is better") if self.s["direction"] == "lower" else self.t("越高越好", "higher is better")
 
+    def overfit(self, row):
+        """Large train-validation gap; not flagged for bagged trees, whose near-zero training error is by design."""
+        gap, mean = row.get("train_gap"), row.get("mean")
+        if gap is None or not mean or abs(mean) < 1e-12 or row.get("family") == "bagging":
+            return False
+        return gap / abs(mean) > 0.5
+
     # ------------------------------------------------------------ verdict
     def verdict(self):
+        if self.basic:
+            return "basic"
         p = self.f["primary"]
         gain = p.get("gain")
         if gain is None or p.get("estimate") is None:
@@ -274,9 +284,63 @@ class Narrator:
             return ""
         return self.t(f"，可解释测试集中{self.target}约 {pct(r2)} 的变异", f", explaining about {pct(r2)} of the variance in {self.target}")
 
+    def performance_clause(self):
+        """Basic reports: test performance in plain numbers (primary metric, then R² or AUC)."""
+        name = self.model(self.s["selected_model"])
+        text = self.t(f"{name}在测试集上的{self.primary_stat()}", f"{name} achieved test {self.primary_stat()}")
+        if self.s["task"] == "regression":
+            r2 = self.f["tests"].get("r2", {}).get("estimate")
+            if r2 is not None and self.metric != "r2":
+                text += f", R² = {fmt(r2)}"
+            text += self.variance_clause()
+        else:
+            for key in ("roc_auc", "accuracy"):
+                value = self.f["tests"].get(key, {}).get("estimate")
+                if value is not None and key != self.metric:
+                    text += f", {self.mlabel(key)} = {fmt(value)}"
+        return text
+
+    def basic_answer(self):
+        """Basic reports: answer the question from test performance against natural references."""
+        target, name = self.target, self.model(self.s["selected_model"])
+        test = self.s.get("permutation_test")
+        sig = ""
+        if test:
+            sig = self.t(f"（置换检验 {apa_p(test['p_value'])}）", f" (permutation test {apa_p(test['p_value'])})")
+            if test["p_value"] >= .05:
+                return self.t(f"最终模型（{name}）的测试集表现未显著高于随机水平{sig}，现有特征对{target}的预测作用不明确",
+                              f"Test performance of the final model ({name}) was not significantly above chance{sig}; the features' predictive value for {target} is unclear")
+        if self.s["task"] == "regression":
+            r2 = self.f["tests"].get("r2", {}).get("estimate")
+            if r2 is None:
+                return self.t(f"最终模型为{name}", f"The final model was {name}")
+            if r2 <= 0:
+                return self.t(f"现有特征未能预测{target}：最终模型（{name}）的测试集 R² = {fmt(r2)}，不如直接用平均值预测",
+                              f"The features did not predict {target}: the final model ({name}) had test R² = {fmt(r2)}, no better than predicting the mean")
+            return self.t(f"现有特征可以预测{target}{sig}：最终模型（{name}）可解释测试集中约 {pct(r2)} 的变异",
+                          f"The features predicted {target}{sig}: the final model ({name}) explained about {pct(r2)} of the test-set variance")
+        k = len(self.s.get("classes") or []) or 2
+        value = self.f["primary"].get("estimate")
+        if self.metric in ("balanced_accuracy", "recall_macro", "roc_auc") and value is not None:
+            chance = 0.5 if self.metric == "roc_auc" else 1 / k
+            relation = self.t("高于" if value > chance else "未高于", "above" if value > chance else "not above")
+            return self.t(f"最终模型（{name}）的测试集{self.mlabel()} = {fmt(value)}，{relation}随机水平（{fmt(chance)}）{sig}",
+                          f"The final model ({name}) had test {self.mlabel()} = {fmt(value)}, {relation} chance level ({fmt(chance)}){sig}")
+        return self.t(f"最终模型（{name}）的测试集{self.primary_stat()}{sig}", f"The final model ({name}) achieved test {self.primary_stat()}{sig}")
+
     def summary_sentence(self):
         """Interpretive one-liner without statistics, for the abstract and discussion."""
         v, target, name = self.verdict(), self.target, self.model(self.s["selected_model"])
+        if v == "basic":
+            text = self.basic_answer()
+            imp = self.f.get("importance") or {}
+            if imp.get("leaders"):
+                text += self.t(f"。预测主要依赖{join([self.feature(x) for x in imp['leaders']], True)}",
+                               f". Predictions relied mainly on {join([self.feature(x) for x in imp['leaders']], False)}")
+            if imp.get("negligible"):
+                text += self.t(f"，{join([self.feature(x) for x in imp['negligible']], True)}几乎没有贡献",
+                               f", while {join([self.feature(x) for x in imp['negligible']], False)} contributed little")
+            return text + self.t("。", ".")
         text = {
             "supported": self.t(f"现有特征能够有效预测{target}，{name}在独立测试集上明显优于基线模型",
                                 f"The available features predicted {target} well; {name} clearly outperformed the baseline on the held-out test set"),
@@ -307,7 +371,11 @@ class Narrator:
         base = fmt(p.get("baseline"))
         diff = self.difference_ci()
         lead = self.leaders_text()
-        if v == "supported":
+        if v == "basic":
+            text = self.performance_clause()
+            if self.permutation_clause():
+                text += self.t("，", ", ") + self.permutation_clause(short=True)
+        elif v == "supported":
             text = self.t(f"{name}对{target}具有较好的预测能力：测试集{self.primary_stat()}{self.variance_clause()}，优于基线模型（{metric} = {base}），且差值的 95% CI {diff} 不包含 0",
                           f"{name} predicted {target} on the held-out test set ({self.primary_stat()}){self.variance_clause()}, outperforming the baseline ({metric} = {base}); the 95% CI of the difference {diff} excluded 0")
         elif v == "supported_point":
@@ -322,7 +390,7 @@ class Narrator:
         else:
             text = self.t(f"测试集主要指标或基线无法计算，无法评估模型对{target}的预测能力",
                           f"The primary test metric or baseline was undefined, so predictive ability for {target} cannot be assessed")
-        if leaders and lead and v in ("supported", "supported_point"):
+        if leaders and lead and v in ("supported", "supported_point", "basic"):
             text += self.t(f"；{lead}", f"; {lead}")
         return text + self.t("。", ".")
 
@@ -339,20 +407,23 @@ class Narrator:
         method = self.t(
             f"训练集 {s['development_n']} 条、{source} {s['test_n']} 条，{s['feature_n']} 个特征。"
             f"在训练集上以 {s['cv_folds']} 折{design}交叉验证比较 {len(f['comparison'])} 个模型（{names}），"
-            f"按{self.mlabel()}（{self.better()}）选择最终模型，再在测试集上与{self.baseline_full()}比较。",
+            f"按{self.mlabel()}（{self.better()}）选择最终模型，" + ("再在测试集上评估。" if self.basic else f"再在测试集上与{self.baseline_full()}比较。"),
             f"{s['development_n']} training and {s['test_n']} {source} samples with {s['feature_n']} features. "
             f"{len(f['comparison'])} models ({names}) were compared by {s['cv_folds']}-fold {design} cross-validation on "
-            f"{self.mlabel()} ({self.better()}); the selected model was then compared on the test set with {self.baseline_full()}.")
+            f"{self.mlabel()} ({self.better()}); the selected model was then " + ("evaluated on the test set." if self.basic else f"compared on the test set with {self.baseline_full()}."))
         sel = f.get("selected") or {}
         result = self.t(f"{self.model(s['selected_model'])}的交叉验证表现最好（{self.mlabel()}: M = {fmt(sel.get('mean'))}, SD = {fmt(sel.get('sd'))}），被选为最终模型。",
                         f"{self.model(s['selected_model'])} performed best in cross-validation ({self.mlabel()}: M = {fmt(sel.get('mean'))}, SD = {fmt(sel.get('sd'))}) and was selected. ")
-        result += self.t(f"在测试集上，{self.baseline_comparison()}。", f"On the test set, {self.baseline_comparison()}. ")
+        if self.basic:
+            result += self.performance_clause() + self.t("。", ". ")
+        else:
+            result += self.t(f"在测试集上，{self.baseline_comparison()}。", f"On the test set, {self.baseline_comparison()}. ")
         improvement = self.improvement_clause()
         if improvement:
             result += improvement + self.t("。", ". ")
         if self.permutation_clause():
             result += self.permutation_clause(short=True)[:1].upper() + self.permutation_clause(short=True)[1:] + self.t("。", ". ")
-        secondary = self.secondary_test_clause()
+        secondary = "" if self.basic else self.secondary_test_clause()
         if secondary:
             result += secondary + self.t("。", ". ")
         lead = self.leaders_text()
@@ -459,10 +530,10 @@ class Narrator:
         parts = [f"{self.feature(r['feature'])}（{delta} = {fmt(r['mean'])}, SD = {fmt(r['sd'])}）" if self.zh else
                  f"{self.feature(r['feature'])} ({delta} = {fmt(r['mean'])}, SD = {fmt(r['sd'])})" for r in top]
         if len(parts) == 1:
-            text = self.t(f"置换重要性分析表明，{parts[0]}是最重要的预测特征", f"Permutation importance showed that {parts[0]} was the most important predictor")
+            text = self.t(f"最重要的预测特征为{parts[0]}", f"The most important predictor was {parts[0]}")
         else:
-            text = self.t(f"置换重要性分析表明，{parts[0]}是最重要的预测特征，其次为{'、'.join(parts[1:])}",
-                          f"Permutation importance showed that {parts[0]} was the most important predictor, followed by {join(parts[1:], False)}")
+            text = self.t(f"最重要的预测特征为{parts[0]}，其次为{'、'.join(parts[1:])}",
+                          f"The most important predictor was {parts[0]}, followed by {join(parts[1:], False)}")
         unstable = [r for r in top if not r["stable"]]
         if unstable and len(unstable) == len(top):
             text += self.t("。这些值的标准差与均值相当，特征排序不稳定",
@@ -537,6 +608,8 @@ class Narrator:
         return text + self.t("。", ".")
 
     def data_flags(self):
+        if self.basic:
+            return []
         shift = self.f.get("shift") or {}
         flags = []
         for item in (shift.get("missing") or [])[:2]:
@@ -615,6 +688,19 @@ class Narrator:
 
     def evaluation_methods(self, uncertainty_lines):
         s = self.s
+        if self.basic:
+            text = self.t(f"模型选择以 {s['cv_folds']} 折交叉验证的平均{self.mlabel()}为准（{self.better()}），结果写作 M ± SD。最终模型在测试集上评估一次。",
+                          f"Models were selected by mean {s['cv_folds']}-fold cross-validated {self.mlabel()} ({self.better()}), reported as M ± SD. The final model was evaluated once on the test set.")
+            out = [text]
+            classes = s.get("classes") or []
+            if s["task"] == "classification" and len(classes) == 2:
+                out.append(self.t(f"二分类中以{self.cls(classes[1])}作为正类（AUC 等指标针对该类计算）。",
+                                  f"{self.cls(classes[1])} was the positive class for AUC and related metrics."))
+            if s.get("permutation_test"):
+                test = s["permutation_test"]
+                out.append(self.t(f"另以置换检验（{test['valid']} 次）检验测试集表现是否高于随机水平。",
+                                  f"A permutation test ({test['valid']} permutations) assessed whether test performance exceeded chance."))
+            return [" ".join(out) if not self.zh else "".join(out)]
         primary = self.t(f"模型选择以 {s['cv_folds']} 折交叉验证的平均{self.mlabel()}为准（{self.better()}），结果写作“均值 ± 标准差”（标准差为各折之间的波动）。其余指标作为补充。",
                          f"Models were selected by mean {s['cv_folds']}-fold cross-validated {self.mlabel()} ({self.better()}), reported as mean ± SD across folds. Other metrics are supplementary.")
         base_text = self.t(f"为判断特征是否有用，设置{self.baseline_full()}作为参照：它不读取任何特征，只用训练集目标变量本身做预测。模型只有明显优于它，才说明特征提供了预测信息。",
@@ -669,22 +755,35 @@ class Narrator:
         out = []
         if len(rows) > 1:
             out.append(self.model_comparison_sentence(reading=False))
+        bits = []
         positive = sel.get("baseline_gain_positive_folds")
         if positive is not None:
-            text = self.t(f"交叉验证中，最终模型在 {positive}/{sel['folds']} 折都优于基线模型",
-                          f"In cross-validation the final model beat the baseline in {positive}/{sel['folds']} folds")
-            gap = sel.get("train_gap")
-            if gap is not None and sel.get("train_mean") is not None:
-                overfit = sel.get("mean") and abs(sel["mean"]) > 1e-12 and gap / abs(sel["mean"]) > 0.5
-                text += self.t(f"；训练集{self.mlabel()}（{fmt(sel['train_mean'])}）与 CV {self.mlabel()}（{fmt(sel['mean'])}）" +
-                               ("差距明显，存在过拟合迹象" if overfit else "接近，没有明显过拟合"),
-                               f"; train {self.mlabel()} ({fmt(sel['train_mean'])}) and CV {self.mlabel()} ({fmt(sel['mean'])}) " +
-                               ("differ markedly, suggesting overfitting" if overfit else "are close, with no clear overfitting"))
-            out.append(text + self.t("。", "."))
+            bits.append(self.t(f"交叉验证中，最终模型在 {positive}/{sel['folds']} 折都优于基线模型",
+                               f"In cross-validation the final model beat the baseline in {positive}/{sel['folds']} folds"))
+        gap = sel.get("train_gap")
+        if gap is not None and sel.get("train_mean") is not None:
+            if sel.get("family") == "bagging" and gap / max(abs(sel.get("mean") or 0), 1e-12) > 0.5:
+                bits.append(self.t(f"最终模型在训练折上几乎完全拟合（训练集{self.mlabel()} = {fmt(sel['train_mean'])}），这是树集成模型的正常特性；其泛化能力以交叉验证与测试集结果为准",
+                                   f"the final model fits the training folds almost perfectly (train {self.mlabel()} = {fmt(sel['train_mean'])}), which is normal for tree ensembles; generalisation is judged from cross-validation and test results"))
+            else:
+                overfit = self.overfit(sel)
+                bits.append(self.t(f"最终模型的训练集{self.mlabel()}（{fmt(sel['train_mean'])}）与 CV {self.mlabel()}（{fmt(sel['mean'])}）" +
+                                   ("差距明显，存在过拟合迹象" if overfit else "接近，没有明显过拟合"),
+                                   f"the final model's train {self.mlabel()} ({fmt(sel['train_mean'])}) and CV {self.mlabel()} ({fmt(sel['mean'])}) " +
+                                   ("differ markedly, suggesting overfitting" if overfit else "are close, with no clear overfitting")))
+        if bits:
+            text = self.t("；", "; ").join(bits)
+            out.append((text if self.zh else text[:1].upper() + text[1:]) + self.t("。", "."))
         return out
 
     def test_results(self):
         name = self.model(self.s["selected_model"])
+        if self.basic:
+            text = self.t(f"测试集（n = {self.s['test_n']}）结果：", f"Test set (n = {self.s['test_n']}): ") + \
+                self.performance_clause().replace("在测试集上的", "的").replace("achieved test ", "achieved ") + self.t("。", ".")
+            if self.permutation_clause():
+                text += self.permutation_clause() + self.t("。", ".")
+            return [text]
         text = self.t(f"在测试集（n = {self.s['test_n']}）上，{name}的{self.baseline_comparison()}。",
                       f"On the test set (n = {self.s['test_n']}), {name} achieved {self.baseline_comparison()}.")
         improvement = self.improvement_clause()
@@ -702,7 +801,9 @@ class Narrator:
         s, f = self.s, self.f
         paras = []
         main = self.t("总体而言，", "Overall, ") + (self.summary_sentence() if self.zh else self.summary_sentence()[:1].lower() + self.summary_sentence()[1:])
-        secondary = "" if self.variance_clause() else self.secondary_test_clause()
+        if self.basic:
+            main = self.summary_sentence()
+        secondary = "" if (self.variance_clause() or self.basic) else self.secondary_test_clause()
         reg = self.f.get("regression") or {}
         if self.variance_clause() and reg.get("within_tolerance") is not None:
             secondary = self.t(f"绝对误差 ≤ {fmt(reg['tolerance'])}{self.unit}的测试样本占 {pct(reg['within_tolerance'])}",
@@ -745,6 +846,12 @@ class Narrator:
         good = [strengths[code](value) for code, value in st["strengths"]]
         bad = [weaknesses[code](value) for code, value in st["weaknesses"]]
         text = ""
+        if self.basic:
+            notes = bad
+            if notes:
+                text += self.t(f"解读时需要注意：{'；'.join(notes)}。", f"Note that: {'; '.join(notes)}. ")
+            return text + self.t("最终模型是按交叉验证得分选出的，其交叉验证得分偏乐观，模型表现以测试集结果为准。",
+                                 "The final model was chosen for its cross-validation score, which is therefore optimistic; the test-set result is the estimate to rely on.")
         if good:
             text += self.t(f"这一结论有较充分的依据：{'；'.join(good)}。", f"This conclusion is well supported: {'; '.join(good)}. ")
         if bad:
@@ -785,7 +892,7 @@ class Narrator:
             steps.append(self.t("如需在接近的候选间取舍，可在训练集内用更多折或重复交叉验证比较，不要依据本次测试结果重新排序。",
                                 "To choose between close candidates, compare them on training data with more or repeated folds; do not re-rank on this test set."))
         sel = f.get("selected") or {}
-        if sel.get("train_gap") is not None and sel.get("mean") and abs(sel["mean"]) > 1e-12 and sel["train_gap"] / abs(sel["mean"]) > 0.5:
+        if self.overfit(sel):
             steps.append(self.t("最终模型存在过拟合迹象，可在训练集内比较正则化更强或更简单的配置（例如 --search grid）。",
                                 "The selected model shows signs of overfitting; compare stronger regularization or simpler settings on training data (e.g. --search grid)."))
         imp = f.get("importance") or {}
@@ -823,7 +930,7 @@ class Narrator:
         if row.get("train_gap") is not None:
             text += self.t(f"，训练分与验证分平均相差 {fmt(row['train_gap'])}", f"; training and validation scores differed by {fmt(row['train_gap'])} on average")
         text += self.t("。", ". ")
-        if row.get("train_gap") is not None and row.get("mean") and abs(row["mean"]) > 1e-12 and row["train_gap"] / abs(row["mean"]) > 0.5:
+        if self.overfit(row):
             text += self.t(f"该模型在训练折上的表现（平均 {fmt(row.get('train_mean'))}）远好于验证折，提示对训练数据过拟合。",
                            f"Its training-fold performance (mean {fmt(row.get('train_mean'))}) far exceeded validation, indicating overfitting. ")
         extra = {k: v for k, v in (row.get("secondary") or {}).items() if k != self.metric and k in METRIC_SHORT}
