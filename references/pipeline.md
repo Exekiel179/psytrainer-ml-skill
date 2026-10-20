@@ -59,7 +59,13 @@ Class encoding is internal, and output labels retain their original names.
   `balanced_accuracy` (default), `accuracy`, macro `f1`/`precision`/`recall`, binary `roc_auc`.
   Selection uses standard sklearn scoring with proper loss direction. Displayed
   losses are positive. ROC AUC requires two classes in every validation fold.
-  Positive class is the second entry in the saved sorted `classes` list.
+  The positive class (AUC, average precision, calibration, thresholds, the
+  `positive_score` column) is `--positive-class` when given, otherwise the second
+  class in sorted order; `summary.json` records it as `positive_class` and lists it
+  second in `classes`. Models always see sorted label codes and CV folds come from
+  the original labels, so the choice changes only how scores are read: model
+  selection and symmetric metrics (accuracy, balanced accuracy, AUC, macro F1)
+  are identical either way.
 
 ## Migrated training options
 
@@ -173,8 +179,8 @@ reads JSON/CSVs rather than loading a pickle or retraining; `report DIR
 
 1. **Abstract** (objective / methods / results / conclusion) and numbered **key
    findings**. The conclusion answers whether the features predict the outcome:
-   *supported* when the paired improvement over the feature-free baseline has a
-   95% interval above zero; *supported (point estimate only)* when no interval is
+   *supported* when the improvement over the dummy baseline (same bootstrap
+   samples) has a 95% CI excluding 0; *supported (point estimate only)* when no interval is
    available; *uncertain* when the interval includes zero; *not supported* when
    the model does not beat the baseline.
 2. **Methods**: data (counts, outcome distribution or class mix per partition,
@@ -195,8 +201,7 @@ reads JSON/CSVs rather than loading a pickle or retraining; `report DIR
 
 Fixed, documented rules decide wording. Candidate standing uses the gap to the
 selected model in pooled between-fold SD units (≤1 close, 1–3 weaker, >3 clearly
-weaker). Relative margins are "x% lower error" with the worse model as the
-denominator. Data issues are raised only when triggered: standardized mean shift
+weaker). Data issues are raised only when triggered: standardized mean shift
 ≥0.5 development SD, missingness difference ≥10 percentage points, ≥10% of test
 values outside the development range, Spearman |ρ| ≥0.7 between important
 features, or ECE >0.1. A feature is called negligible when its mean permutation
@@ -205,6 +210,15 @@ repeat SDs. A family reading ("linear beats non-linear suggests an approximately
 linear relationship") is phrased as a reading of the comparison, never as a test
 of mechanism. Overfitting is mentioned when the train−validation gap exceeds half
 the validation score. Only the selected model is evaluated on the test set.
+
+### Wording conventions
+
+Wording follows ML papers in psychology: training/test set, cross-validation
+(M, SD across folds), a named dummy baseline, APA statistics with two decimals
+(`MAE = 0.16, 95% CI [0.11, 0.21]`), "X% lower than baseline (difference =,
+95% CI [...])", permutation importance as `ΔMAE = …, SD = …`, and R² stated as
+variance explained. Development/validation jargon specific to this tool
+("开发集", "配对改善", importance shares) is not used.
 
 ### Report context
 
@@ -229,6 +243,15 @@ probability calibration with bin counts, and threshold trade-offs; permutation
 reliance, feature correlation, input shift, and group/time stability.
 The report translates measured findings into bounded development-set follow-ups,
 without selecting thresholds, removing features or retuning against the test set.
+
+`--permutations N` (0 = off; at least 99, 1000 recommended for publication) adds a
+label-permutation test of held-out performance: the final configuration is
+refitted N times on shuffled training labels and scored on the unchanged test set.
+p = (number of permuted scores ≥ observed + 1)/(valid permutations + 1), so the
+smallest reportable p is 1/(N+1). This costs N extra final fits (including any
+forward selection), and row-level shuffling ignores group/time dependence, which
+the report states. Results: `permutation_test` in `summary.json`,
+`permutation-null.csv`, and a null-distribution figure.
 
 `--bootstrap 500` is the default; use 0 to disable or at least 100 repeats.
 Random designs resample test rows; grouped designs resample entire test groups

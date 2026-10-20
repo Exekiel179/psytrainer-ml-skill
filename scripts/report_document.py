@@ -50,7 +50,7 @@ class ReportDocument:
     def figure(self, path, caption, source):
         self.figure_count += 1
         label = f"图 {self.figure_count}" if self.zh else f"Figure {self.figure_count}"
-        source_text = ("源数据：" if self.zh else "Source data: ") + source
+        source_text = ("（数据：" if self.zh else "(Data: ") + source + ("）" if self.zh else ")")
         self.blocks.append(("figure", Path(path), label, tidy(caption, self.zh), source_text))
         return label
 

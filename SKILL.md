@@ -33,8 +33,32 @@ development/test comparability, strata), a discussion with evidence strength,
 triggered data issues, limitations and tailored next steps, and appendices
 (per-model fold results, metric definitions, figure-reading guide, reproducibility).
 With ≥4 successful models, per-model details go to `reports/<Model>.md` (+ `.docx`).
+For binary outcomes, set `--positive-class` to the clinically meaningful class
+(e.g. `case`, `depressed`) — otherwise the alphabetically second class is
+"positive" for AUC/calibration, which can be the control group. Ask if unclear.
+When the user wants a significance statement ("better than chance", p-value),
+add `--permutations 1000` and tell them it refits the final model 1000 times.
 Use `--task classification` for classes; honor chosen models/metrics. Add a known
 research question with `--question`.
+
+## Report conventions
+
+Reports follow the reporting style of machine-learning studies in psychology and
+behavioural science, and any summary or rewrite you produce must keep it:
+
+- Terms: 训练集 / 测试集 (training / test set), 交叉验证 (CV), 最终模型 (final
+  model), 基线模型 (baseline: `DummyRegressor` predicting the training median or
+  mean; `DummyClassifier` predicting the majority class), 置换重要性
+  (permutation importance). Never "开发集", "配对改善" or "正向重要性".
+- Statistics in APA form with two decimals: `MAE = 0.16, 95% CI [0.11, 0.21]`;
+  CV results as `M = 0.17, SD = 0.03`; improvement as "MAE 降低了 90%（差值 =
+  1.55, 95% CI [0.98, 2.09]）"; importance as `ΔMAE = 2.16, SD = 0.40`.
+- 95% CI = test-set bootstrap percentile interval; the baseline difference CI
+  excluding 0 is what "outperforms the baseline" means. p-values only come from
+  the optional permutation test, reported APA style (`p = .005`, `p < .001`).
+- Regression conclusions state variance explained from R² ("可解释约 99% 的变异").
+- Figures are always in English (for international journals), with model display
+  names and real class names; report text follows `--language`.
 
 ## Report context
 

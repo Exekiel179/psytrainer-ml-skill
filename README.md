@@ -35,6 +35,8 @@ seven resampling methods, domain model presets and checked CV resume.
 | Parameter/preprocessing search | `--search grid` or `random`, conditional `--search-space`, per-model `--max-candidates` |
 | Domain model sets | `--preset audio`, `face`, `gait`, `text`: regression on extracted numeric features, not raw-media extraction |
 | Resume and persistence | `--resume` verifies inputs/configuration/versions; `--save-candidates` retains each model's best configuration |
+| Binary positive class | `--positive-class case`: the class AUC, calibration and thresholds refer to (does not change model selection) |
+| Permutation test | `--permutations 1000`: p-value for test performance above chance (refits the final model N times) |
 
 Learned transforms fit within training folds. The holdout is excluded from
 selection/search; figures and Word reports record the actual processing and results.

@@ -384,6 +384,9 @@ def evidence_strength(s, primary, comparison, selected):
             notes["strengths"].append(("all_folds_beat_baseline", selected["folds"]))
     if s.get("external_test"):
         notes["strengths"].append(("external_test", None))
+    test = s.get("permutation_test")
+    if test and test.get("p_value") is not None:
+        notes["strengths" if test["p_value"] < .05 else "weaknesses"].append(("permutation", test["p_value"]))
     return notes
 
 
