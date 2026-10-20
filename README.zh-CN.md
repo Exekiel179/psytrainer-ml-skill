@@ -177,6 +177,8 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 | 显式填补缺失特征 | `--impute median` |
 | 指定研究问题 | `--question "基线指标能否预测后续评分？"` |
 | 英文报告 | `--language en` |
+| 二分类的正类（AUC、校准等以它为准） | `--positive-class case` |
+| 置换检验（模型是否显著高于随机水平，给出 p 值） | `--permutations 1000`（最终模型会额外重训 1000 次） |
 | 报告中的变量含义、单位、可接受误差 | `--context ctx.json`（键见 [Pipeline 参考](references/pipeline.md#report-context)） |
 | 配置算法参数 | `--model-params config/models.json`，内容按模型名称映射到参数对象 |
 | 搜索参数或比较预处理组合 | `--search grid` 或 `--search random --max-candidates 12`；自定义 `--search-space config/search.json` |

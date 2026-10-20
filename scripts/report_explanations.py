@@ -192,6 +192,13 @@ FIGURES = {
         'Test performance and baseline comparison',
         'The horizontal axis is the primary metric. Blue is the selected model; gray is the dummy baseline. Read the metric direction. A blue interval, when shown, summarizes resampled test performance conditional on this fitted model, not individual prediction error.',
         'The baseline is a point estimate; paired-difference intervals are retained in the results and source data. Resampling units and conditions are given in Methods 1.5.'),
+    'permutation-test': (
+        '置换检验',
+        '横轴是测试集上的主要指标，纵轴是置换次数。灰色直方图来自“标签被打乱”的情形：把训练集的目标变量随机打乱后，特征与目标变量之间不再有真实联系，用同样的流程重新训练并在测试集上打分，重复多次就得到“只靠运气能达到的成绩”的分布。蓝线是实际模型的成绩。',
+        '蓝线越远离灰色分布，模型越不可能只是靠运气。p 值 = （打乱后成绩不差于实际成绩的次数 + 1）/（有效置换次数 + 1），因此 1000 次置换时 p 最小为 .001。',
+        'Permutation test',
+        'The horizontal axis is the primary test metric; the vertical axis counts permutations. The grey histogram comes from shuffling the training labels (removing any real link between features and target), refitting with the same pipeline and scoring on the test set, repeated many times: the performance achievable by chance. The blue line is the real model.',
+        'The further the blue line lies from the grey distribution, the less likely the result is chance. p = (number of permuted scores at least as good as observed + 1) / (valid permutations + 1), so with 1,000 permutations the smallest p is .001.'),
     'regression-diagnostics': (
         '预测一致性与残差分布',
         'a 面板横轴是真实值、纵轴是预测值，每点是一条测试记录；贴近对角虚线表示接近真实值，线上方是高估。b 面板横轴是预测值、纵轴是真实值减预测值；零线上方是低估，蓝线概括不同预测范围的平均偏差。c 面板横轴是绝对误差、纵轴是误差不超过这个数的样本比例，可从纵轴 0.9 读出约九成样本的误差上限。d 面板显示不同预测水平的平均绝对误差。',

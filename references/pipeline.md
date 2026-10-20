@@ -59,7 +59,13 @@ Class encoding is internal, and output labels retain their original names.
   `balanced_accuracy` (default), `accuracy`, macro `f1`/`precision`/`recall`, binary `roc_auc`.
   Selection uses standard sklearn scoring with proper loss direction. Displayed
   losses are positive. ROC AUC requires two classes in every validation fold.
-  Positive class is the second entry in the saved sorted `classes` list.
+  The positive class (AUC, average precision, calibration, thresholds, the
+  `positive_score` column) is `--positive-class` when given, otherwise the second
+  class in sorted order; `summary.json` records it as `positive_class` and lists it
+  second in `classes`. Models always see sorted label codes and CV folds come from
+  the original labels, so the choice changes only how scores are read: model
+  selection and symmetric metrics (accuracy, balanced accuracy, AUC, macro F1)
+  are identical either way.
 
 ## Migrated training options
 
@@ -237,6 +243,15 @@ probability calibration with bin counts, and threshold trade-offs; permutation
 reliance, feature correlation, input shift, and group/time stability.
 The report translates measured findings into bounded development-set follow-ups,
 without selecting thresholds, removing features or retuning against the test set.
+
+`--permutations N` (0 = off; at least 99, 1000 recommended for publication) adds a
+label-permutation test of held-out performance: the final configuration is
+refitted N times on shuffled training labels and scored on the unchanged test set.
+p = (number of permuted scores ≥ observed + 1)/(valid permutations + 1), so the
+smallest reportable p is 1/(N+1). This costs N extra final fits (including any
+forward selection), and row-level shuffling ignores group/time dependence, which
+the report states. Results: `permutation_test` in `summary.json`,
+`permutation-null.csv`, and a null-distribution figure.
 
 `--bootstrap 500` is the default; use 0 to disable or at least 100 repeats.
 Random designs resample test rows; grouped designs resample entire test groups

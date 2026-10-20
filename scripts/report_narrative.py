@@ -100,6 +100,13 @@ def tidy(text, zh):
     return text.strip()
 
 
+def apa_p(p):
+    """APA p-value: no leading zero, three decimals, '< .001' floor."""
+    if p is None:
+        return "NA"
+    return "p < .001" if p < .001 else "p = " + f"{p:.3f}".lstrip("0")
+
+
 def stat(label, value, lo=None, hi=None):
     """APA-style 'MAE = 0.16, 95% CI [0.11, 0.21]'."""
     text = f"{label} = {fmt(value)}"
@@ -212,6 +219,18 @@ class Narrator:
         if p.get("baseline") is not None:
             text += self.t(f"；基线模型的{self.mlabel()} = {fmt(p['baseline'])}", f"; baseline {self.mlabel()} = {fmt(p['baseline'])}")
         return text
+
+    def permutation_clause(self, short=False):
+        test = self.s.get("permutation_test")
+        if not test:
+            return ""
+        above = test["p_value"] < .05
+        chance = f"M = {fmt(test['null_mean'])}, SD = {fmt(test['null_sd'])}"
+        if short:
+            return self.t(f"置换检验显示模型表现{'显著高于' if above else '未显著高于'}随机水平（{apa_p(test['p_value'])}）",
+                          f"a permutation test showed performance {'significantly above' if above else 'not significantly above'} chance ({apa_p(test['p_value'])})")
+        return self.t(f"置换检验显示，模型的测试集表现{'显著高于' if above else '未显著高于'}随机水平（{apa_p(test['p_value'])}，{test['valid']} 次置换；随机水平下的{self.mlabel()} {chance}）",
+                      f"A permutation test showed that test performance was {'significantly above' if above else 'not significantly above'} chance ({apa_p(test['p_value'])}, {test['valid']} permutations; chance-level {self.mlabel()}: {chance})")
 
     def improvement_clause(self):
         p = self.f["primary"]
@@ -331,6 +350,8 @@ class Narrator:
         improvement = self.improvement_clause()
         if improvement:
             result += improvement + self.t("。", ". ")
+        if self.permutation_clause():
+            result += self.permutation_clause(short=True)[:1].upper() + self.permutation_clause(short=True)[1:] + self.t("。", ". ")
         secondary = self.secondary_test_clause()
         if secondary:
             result += secondary + self.t("。", ". ")
@@ -605,9 +626,22 @@ class Narrator:
         importance = self.t(f"特征重要性采用测试集置换重要性（permutation importance）：将某一特征的取值随机打乱、其他特征不变，记录{self.mlabel()}的变化，重复 {s.get('importance_repeats')} 次取均值 ± 标准差。数值越大，模型越依赖该特征；接近 0 表示几乎不依赖。",
                             f"Feature importance is test-set permutation importance: shuffle one feature, keep the others, record the change in {self.mlabel()}, and repeat {s.get('importance_repeats')} times (mean ± SD). Larger values mean stronger reliance; values near 0 mean little reliance. ")
         classes = s.get("classes") or []
+        extra = []
         if s["task"] == "classification" and len(classes) == 2:
-            importance += self.t(f"二分类中，AUC、平均精确率与概率校准以{self.cls(classes[1])}作为正类（按类别名排序的第二类）。",
-                                 f"For binary outcomes, AUC, average precision and calibration treat {self.cls(classes[1])} as the positive class (second in sorted order). ")
+            chosen = (s.get("arguments") or {}).get("positive_class")
+            how = self.t("由研究者指定" if chosen else "默认取类别名排序后的第二类；可用 --positive-class 指定",
+                         "specified by the researcher" if chosen else "by default the second class in sorted order; set with --positive-class")
+            extra.append(self.t(f"二分类中，以{self.cls(classes[1])}作为正类（{how}），AUC、平均精确率、校准曲线和阈值分析均针对该类计算。",
+                                f"For the binary outcome, {self.cls(classes[1])} was the positive class ({how}); AUC, average precision, calibration and threshold analyses refer to it."))
+        test = s.get("permutation_test")
+        if test:
+            extra.append(self.t(
+                f"为检验模型表现是否高于随机水平，进行了置换检验（permutation test）：将训练集的目标变量随机打乱，使特征与目标变量之间不再存在真实联系，"
+                f"再用与最终模型相同的配置重新训练，并在同一测试集上计算{self.mlabel()}；重复 {test['valid']} 次得到随机水平下的成绩分布。"
+                f"p 值为打乱后成绩不差于实际成绩的比例，即（次数 + 1）/（置换次数 + 1）。",
+                f"To test whether performance exceeded chance, a permutation test was run: training labels were randomly shuffled (removing any real association with the features), "
+                f"the final configuration was refitted, and {self.mlabel()} was computed on the same test set; {test['valid']} repetitions gave the chance distribution. "
+                f"The p-value is the proportion of permuted scores at least as good as the observed score, (count + 1)/(permutations + 1)."))
         interval_info = uncertainty_lines if isinstance(uncertainty_lines, dict) else {}
         if interval_info.get("omitted_reason"):
             detail = self.t("本次未计算置信区间：" + {
@@ -624,7 +658,8 @@ class Narrator:
             detail = ""
         if interval_info.get("omitted_reason") or not interval_info:
             ci = ""
-        return [primary + self.t("", " ") + base_text, ci + detail, importance + self.t("报告不做显著性检验。", "No significance tests are performed.")]
+        closing = "" if s.get("permutation_test") else self.t("报告不做显著性检验。", "No significance tests are performed.")
+        return [primary + self.t("", " ") + base_text, ci + detail, importance + closing, *extra]
 
     # ------------------------------------------------------------ results prose
     def comparison_results(self):
@@ -650,11 +685,13 @@ class Narrator:
 
     def test_results(self):
         name = self.model(self.s["selected_model"])
-        text = self.t(f"在测试集（n = {self.s['test_n']}）上，{name}的 {self.baseline_comparison()}。",
+        text = self.t(f"在测试集（n = {self.s['test_n']}）上，{name}的{self.baseline_comparison()}。",
                       f"On the test set (n = {self.s['test_n']}), {name} achieved {self.baseline_comparison()}.")
         improvement = self.improvement_clause()
         if improvement:
             text += improvement + self.t("。", ". ")
+        if self.permutation_clause():
+            text += self.permutation_clause() + self.t("。", ". ")
         secondary = self.secondary_test_clause()
         if secondary:
             text += self.t(f"补充指标：{secondary}。", f" Supplementary metrics: {secondary}.")
@@ -695,11 +732,13 @@ class Narrator:
             "clear_selection": lambda v: self.t("最终模型领先其余模型的幅度大于交叉验证标准差", "a lead over other models larger than the cross-validation SD"),
             "all_folds_beat_baseline": lambda v: self.t(f"交叉验证的全部 {v} 折中，最终模型都优于基线", f"the selected model beating the baseline in all {v} cross-validation folds"),
             "external_test": lambda v: self.t("测试数据来自另行提供的外部样本", "an externally supplied test sample"),
+            "permutation": lambda v: self.t(f"置换检验显示模型显著高于随机水平（{apa_p(v)}）", f"performance significantly above chance in a permutation test ({apa_p(v)})"),
         }
         weaknesses = {
             "small_test": lambda v: self.t(f"测试集只有 {v} 个样本，估计精度有限", f"only {v} test samples, limiting precision"),
             "gain_interval": lambda v: self.t(f"与基线差值的 95% CI {interval(*v)} 包含 0", f"a 95% CI of the difference from baseline {interval(*v)} that includes 0"),
             "wide_interval": lambda v: self.t(f"主要指标的 95% CI 较宽（宽度约为点估计的 {pct(v)}）", f"a wide 95% CI (about {pct(v)} of the estimate)"),
+            "permutation": lambda v: self.t(f"置换检验未显示模型显著高于随机水平（{apa_p(v)}）", f"a permutation test not showing performance above chance ({apa_p(v)})"),
             "close_runner_up": lambda v: self.t(f"{join([self.model(m) for m in v], True)}与最终模型的差距小于交叉验证标准差，模型排序不稳定",
                                                 f"a runner-up ({join([self.model(m) for m in v], False)}) within cross-validation variability of the selected model, so the ranking is not stable"),
         }

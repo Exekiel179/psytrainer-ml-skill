@@ -75,6 +75,21 @@ def diagnostic_plots(directory, summary, add):
     add(fig, "test-performance", (f"独立测试主要指标（n={n}）。蓝色为所选模型，灰色为基线模型。若可计算，线段为模型指标 95% 百分位 bootstrap 区间；随机设计按行、分组设计按整组重采样，时间设计不绘制区间。基线仅显示点估计；相对基线的差值及其区间见源表。区间不覆盖训练和模型选择不确定性。" if zh else
         f"Held-out primary metric (n={n}). Blue: selected model; gray: training-fitted baseline point estimate. Where defined, model bars are 95% percentile bootstrap intervals (rows for random, whole groups for group designs; omitted for time). Paired gain intervals are in the source table. Training/selection uncertainty is excluded."), "metric-intervals.csv; analysis.json")
 
+    test = summary.get("permutation_test")
+    if test and (directory / "permutation-null.csv").exists():
+        null = pd.read_csv(directory / "permutation-null.csv").score.to_numpy()
+        fig, ax = plt.subplots(figsize=(7.09, 2.9), layout="constrained")
+        ax.hist(null, bins=min(40, max(10, len(null) // 25)), color=GRAY, alpha=.75, edgecolor="white")
+        ax.axvline(test["observed"], color=BLUE, lw=2)
+        p = test["p_value"]
+        p_text = "p < .001" if p < .001 else f"p = {p:.3f}".replace("0.", ".", 1)
+        ax.text(test["observed"], ax.get_ylim()[1] * .92, f"  observed = {test['observed']:.2f}  \n  {p_text}  ",
+                color=BLUE, fontsize=8, va="top", ha="left" if test["observed"] < np.percentile(null, 90) else "right")
+        ax.set(xlabel=f"Held-out {primary} ({summary['direction']} is better)", ylabel="Permutations")
+        title(ax, "a", "Permutation test")
+        add(fig, "permutation-test", ("置换检验：灰色为打乱训练集标签后重新训练得到的测试集得分分布，蓝线为实际得分。" if zh else
+            "Permutation test: grey = test scores after refitting on shuffled training labels; blue = observed score."), "permutation-null.csv")
+
     if summary["task"] == "regression":
         observed, predicted = pd.to_numeric(pred.observed), pd.to_numeric(pred.predicted)
         residual = observed - predicted

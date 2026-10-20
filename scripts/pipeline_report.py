@@ -36,7 +36,7 @@ FIGURE_TEXT = {
     "Development": "Training set", "Test": "Test set",
     "Validation gain over dummy baseline": "Improvement over baseline (validation folds)",
     "Training versus validation": "Training vs. validation score", "Paired baseline comparison": "Improvement over baseline",
-    "Held-out performance and uncertainty": "Test-set performance (95% CI)",
+    "Held-out performance and uncertainty": "Test-set performance (95% CI)", "Permutations": "Number of permutations",
     "Selected model": "Final model", "Dummy baseline": "Baseline",
     "Observed outcome": "Observed", "Predicted outcome": "Predicted", "Residual (observed - predicted)": "Residual (observed − predicted)",
     "Fraction at or below error": "Cumulative proportion", "Mean predicted outcome in bin": "Mean predicted value (bin)",
@@ -75,6 +75,8 @@ def localize_figure(fig):
             key = {"f1": "f1_macro", "precision": "precision_macro", "recall": "recall_macro"}.get(m.group(2), m.group(2))
             label = metric_label(key, False)
             label = label[:1].upper() + label[1:] if label.islower() else label
+            if m.group(1) and not label[:2].isupper():
+                label = label[:1].lower() + label[1:]
             return prefix + f"{'Test-set ' if m.group(1) else ''}{label} ({m.group(3)} is better)"
         m = re.match(r"^Decrease in (\w+) scorer", text)
         if m:
@@ -263,7 +265,7 @@ def plots(directory, summary):
 # Figure families grouped by the results subsection that discusses them.
 SECTION_FIGURES = {
     "comparison": ("model-validation", "parameter-search", "cv-comparison"),
-    "test": ("test-performance",),
+    "test": ("test-performance", "permutation-test"),
     "errors": ("regression-diagnostics", "classification-errors", "classification-discrimination",
                "probability-calibration", "threshold-tradeoffs", "observed-predicted", "residuals",
                "confusion-matrix", "roc", "precision-recall"),
@@ -300,6 +302,8 @@ def paper_caption(family, figure, s, n, zh):
         "model-validation": (f"各候选模型的交叉验证表现。(a) 每折的训练得分（灰）与验证得分（蓝）；(b) 每折中模型相对基线模型的提升，正值表示优于基线，绿色为均值 ± SD。",
                              f"Cross-validated performance of candidate models. (a) Training (grey) and validation (blue) scores per fold; (b) improvement over the baseline per fold (positive = better), green = mean ± SD."),
         "test-performance": (f"最终模型与基线模型在测试集上的 {metric}。{ci}", f"Test-set {metric} of the final model and the baseline. {ci_en}"),
+        "permutation-test": (f"置换检验。灰色直方图为将训练集标签随机打乱 {(s.get('permutation_test') or {}).get('valid')} 次、每次重新训练后在测试集上得到的 {metric}（即特征不含信息时的成绩分布）；蓝线为实际模型的成绩。",
+                             f"Permutation test. Grey histogram: test-set {metric} after refitting on randomly shuffled training labels ({(s.get('permutation_test') or {}).get('valid')} permutations), i.e. performance when features carry no information; blue line: observed score."),
         "regression-diagnostics": ("测试集预测误差。(a) 预测值与实际值，虚线为 y = x；(b) 残差（实际 − 预测）与预测值，曲线为分箱均值；(c) 绝对误差的累积分布；(d) 不同预测区间的 MAE。",
                                    "Test-set prediction error. (a) Predicted vs. observed, dashed line y = x; (b) residuals (observed − predicted) vs. predicted, line = binned mean; (c) cumulative distribution of absolute error; (d) MAE by prediction range."),
         "classification-errors": (f"测试集混淆矩阵与各类别表现。(a) 按实际类别归一化的混淆矩阵；(b) 各类别的精确率、召回率与 F1。" + (f"类别编码：{key}。" if key else ""),
