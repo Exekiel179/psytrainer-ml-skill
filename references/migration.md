@@ -72,22 +72,11 @@ Default: `python scripts/install_runtime.py`, CPython 3.12-3.14, `.venv`,
 `runtime.json`. All 21 model dependencies and report libraries are installed.
 Neither source imports nor provenance collection requires PsyTrainer.
 
-Original INI compatibility is optional and never uses CLI wheel/legacy flags.
-Agents should remind users they may place a single `PsyTrainer-*.whl` under
-`vendor/`, or skip it and use the Pipeline scripts. With that one wheel present,
-run `python scripts/install_runtime.py`; setup also creates matching CPython,
-`.venv-legacy`, and `runtime-legacy.json`. Without a wheel, Pipeline-only setup
-remains. Existing INI files and model directories still use
-`ml.py configure/train/predict/report`, `PsyTrainer.py` and `batch_predict.py`.
-The two environments coexist; neither installation deletes the other's marker.
-`--recreate` recreates the Pipeline venv, and the optional legacy venv when a
-wheel is still discoverable under `vendor/`.
-
-Pre-migration `.venv` installations containing PsyTrainer continue to work; no
-automatic uninstall or INI conversion occurs. Setup refreshes runtime metadata;
-Pipeline commands check and repair their task dependencies on each invocation.
-Do not replace original INI execution with Pipeline and
-claim identical scores: CV design, preprocessing and scoring differ intentionally.
+Optional PsyTrainer wheel / `vendor/` / `.venv-legacy` support has been removed.
+This Skill ships Pipeline only (`scripts/pipeline_train.py`). Historical INI
+wrappers still refuse clearly when the old engine is absent; do not restore a
+wheel path. Do not claim Pipeline scores match historical INI runs: CV design,
+preprocessing and scoring differ intentionally.
 
 Saved Pipeline v1 joblib dictionaries retain the same schema and standard-library
 estimator classes, so the migration introduces no custom pickle class dependency.

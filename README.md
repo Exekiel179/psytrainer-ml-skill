@@ -13,9 +13,12 @@ This Skill combines agent instructions with local Python tools for training,
 prediction, scientific figures, and Word reports. The Pipeline supports
 9 classification and 12 regression algorithms, with integrated validation,
 preprocessing and reporting.
-Reports follow a technical abstract/methods/results/discussion layout. Each
-successfully trained model has its own results section; large runs also write
-per-model files under `reports/`. Appendix summary tables are comparative only.
+Reports are findings-first: a structured abstract and key findings answer the
+research question (do the features beat a feature-free baseline, by how much,
+through which predictors), followed by methods, results with embedded figures,
+a discussion of evidence strength and data issues triggered in this run, and
+next steps. Optional `--context ctx.json` adds variable meanings, units and an
+acceptable error; `report DIR --context ctx.json` regenerates without retraining.
 It also provides bounded grid/random search, forward/F-threshold selection,
 seven resampling methods, domain model presets and checked CV resume.
 
@@ -32,6 +35,8 @@ seven resampling methods, domain model presets and checked CV resume.
 | Parameter/preprocessing search | `--search grid` or `random`, conditional `--search-space`, per-model `--max-candidates` |
 | Domain model sets | `--preset audio`, `face`, `gait`, `text`: regression on extracted numeric features, not raw-media extraction |
 | Resume and persistence | `--resume` verifies inputs/configuration/versions; `--save-candidates` retains each model's best configuration |
+| Binary positive class | `--positive-class case`: the class AUC, calibration and thresholds refer to (does not change model selection) |
+| Permutation test | `--permutations 1000`: p-value for test performance above chance (refits the final model N times) |
 
 Learned transforms fit within training folds. The holdout is excluded from
 selection/search; figures and Word reports record the actual processing and results.
@@ -126,9 +131,8 @@ with `ready: true` records that the environment exists, not that every package i
 installed. Every task invocation checks current dependency versions and imports.
 Satisfied dependencies require no network downloads.
 
-Default Pipeline setup does not need a PsyTrainer wheel. For historical INI
-compatibility only, place a single `PsyTrainer-*.whl` under `vendor/` and rerun
-setup (no CLI flags; see [setup](references/setup.md)).
+This Skill is Pipeline-only (`scripts/pipeline_train.py`); there is no optional
+PsyTrainer wheel / `vendor/` / legacy INI runtime.
 
 Default training installs core modeling, plotting and Word report libraries.
 LightGBM, XGBoost and CatBoost are installed only when selected; resampling adds

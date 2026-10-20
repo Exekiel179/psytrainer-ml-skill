@@ -176,10 +176,10 @@ def analyze(directory, summary):
     primary = {"f1": "f1_macro", "precision": "precision_macro", "recall": "recall_macro"}.get(summary["metric"], summary["metric"])
     result = metrics.set_index("metric").loc[primary]
     if pd.notna(result["gain"]):
-        finding("baseline", f"测试集 {primary} 为 {result.estimate:.4g}，开发集拟合的基线为 {result.baseline:.4g}；按指标优劣方向计算的差值为 {result.gain:.4g}（正值表示改善）。" +
-                (f"配对增益的 95% 区间为 [{result.gain_lower:.4g}, {result.gain_upper:.4g}]。" if pd.notna(result.gain_lower) else "当前设计未给出增益区间。"),
-                f"Held-out {primary}={result.estimate:.4g}; development-fitted dummy baseline={result.baseline:.4g}; oriented gain={result.gain:.4g} (positive is better). " +
-                (f"Paired 95% interval [{result.gain_lower:.4g}, {result.gain_upper:.4g}]. " if pd.notna(result.gain_lower) else "No supported gain interval for this design. "), "metric-intervals.csv; baseline-predictions.csv")
+        finding("baseline", f"测试集 {primary} 为 {result.estimate:.4g}，基线模型为 {result.baseline:.4g}；按指标优劣方向计算的差值为 {result.gain:.4g}（正值表示改善）。" +
+                (f"相对基线的差值的 95% 区间为 [{result.gain_lower:.4g}, {result.gain_upper:.4g}]。" if pd.notna(result.gain_lower) else "当前设计未给出增益区间。"),
+                f"Held-out {primary}={result.estimate:.4g}; dummy baseline={result.baseline:.4g}; oriented gain={result.gain:.4g} (positive is better). " +
+                (f"95% CI of the difference [{result.gain_lower:.4g}, {result.gain_upper:.4g}]. " if pd.notna(result.gain_lower) else "No supported gain interval for this design. "), "metric-intervals.csv; baseline-predictions.csv")
     cv = pd.read_csv(directory / "cv-scores.csv")
     if "train_score" in cv:
         selected = cv[cv.model == summary["selected_model"]]
@@ -247,8 +247,8 @@ def analyze(directory, summary):
         defined = shift.dropna(subset=["standardized_mean_shift"])
         if len(defined):
             top = defined.loc[defined.standardized_mean_shift.abs().idxmax()]
-            finding("shift", f"均值位移最大的可计算特征为 {top.feature}，测试/开发差异={top.standardized_mean_shift:.3g} 个开发集标准差。漂移图同时列出缺失率；均值差仅是分布诊断，不能证明性能下降的原因。开发集常量或全缺失特征的标准化位移不定义。",
-                    f"Largest defined feature mean shift: {top.feature}, {top.standardized_mean_shift:.3g} development SDs. Missingness is shown separately. Mean shifts do not establish the cause of performance changes; standardized shifts are undefined for constant/all-missing development features.", "feature-shift.csv")
+            finding("shift", f"均值位移最大的可计算特征为 {top.feature}，测试/训练差异={top.standardized_mean_shift:.3g} 个训练集标准差。漂移图同时列出缺失率；均值差仅是分布诊断，不能证明性能下降的原因。训练集常量或全缺失特征的标准化位移不定义。",
+                    f"Largest defined feature mean shift: {top.feature}, {top.standardized_mean_shift:.3g} training SDs. Missingness is shown separately. Mean shifts do not establish the cause of performance changes; standardized shifts are undefined for constant/all-missing training features.", "feature-shift.csv")
     if (directory / "importance.csv").exists():
         imp = pd.read_csv(directory / "importance.csv", dtype={"feature": str}, keep_default_na=False)
         leader = imp.iloc[0]

@@ -77,14 +77,19 @@ def exercise(root):
         assert len(doc.inline_shapes) >= 4 and doc.tables
         assert len(list((out / "figures").glob("*.svg"))) == len(doc.inline_shapes)
         headings = [p.text for p in doc.paragraphs if p.style.name.startswith("Heading")]
-        assert any(h in ("各模型结果", "Results by Model") for h in headings)
+        assert any(h in ("2.1 模型比较", "2.1 Model comparison") for h in headings)
         assert "摘要" in headings or "Abstract" in headings
         md = (out / "report.md").read_text(encoding="utf-8")
-        assert "附录 模型验证汇总" in md or "Appendix Model Validation Summary" in md
+        assert "附录 A" in md or "Appendix A" in md
+        assert "主张：" not in md and "Claim:" not in md
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+        from report_narrative import fmt, metric_label
+        zh = summary["language"] == "zh"
+        test_table = doc.tables[1]
         for metric, value in summary["test_metrics"].items():
             if value is not None:
-                assert any(metric == row.cells[0].text and f"{value:.6g}" == row.cells[1].text
-                           for row in doc.tables[0].rows)
+                assert any(row.cells[0].text.startswith(metric_label(metric, zh)) and row.cells[1].text == fmt(value)
+                           for row in test_table.rows), metric
         command("predict", "--features", root / "x.csv", "--model", out / "pipeline.joblib", "--output", out / "new-predictions.csv")
         assert len(pd.read_csv(out / "new-predictions.csv")) == len(x)
         print(json.dumps({"case": split, "status": "passed", "report": result["report"]}))

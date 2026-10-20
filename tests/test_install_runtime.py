@@ -7,7 +7,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -26,72 +25,16 @@ install_runtime = load_installer()
 
 
 class InstallRuntimeTests(unittest.TestCase):
-    def test_optional_wheel_discovery_skips_when_absent(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            with patch.object(install_runtime, "ROOT", root):
-                self.assertIsNone(install_runtime.discover_optional_wheel())
-            vendor = root / "vendor"
-            vendor.mkdir()
-            wheel = vendor / "PsyTrainer-0.2.0-cp313-none-any.whl"
-            wheel.write_bytes(b"wheel")
-            with patch.object(install_runtime, "ROOT", root):
-                self.assertEqual(install_runtime.discover_optional_wheel(), wheel.resolve())
-            (vendor / "PsyTrainer-0.1.0-cp313-none-any.whl").write_bytes(b"other")
-            with patch.object(install_runtime, "ROOT", root):
-                self.assertIsNone(install_runtime.discover_optional_wheel())
 
-    def test_optional_wheel_ignores_root_and_env(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            (root / "PsyTrainer-0.2.0-cp313-none-any.whl").write_bytes(b"wheel")
-            with patch.object(install_runtime, "ROOT", root), \
-                 patch.dict(os.environ, {"PSYTRAINER_WHEEL": str(root / "external.whl")}, clear=False):
-                self.assertIsNone(install_runtime.discover_optional_wheel())
 
-    def test_setup_installs_legacy_when_optional_wheel_discovered(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            vendor = root / "vendor"
-            vendor.mkdir()
-            wheel = vendor / "PsyTrainer-0.2.0-cp313-none-any.whl"
-            wheel.write_bytes(b"wheel")
-            with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "discover_optional_wheel", return_value=wheel), \
-                 patch.object(install_runtime, "wheel_python", return_value=(3, 13)), \
-                 patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
-                 patch.object(install_runtime, "ensure_venv", side_effect=lambda *a, **k: (
-                     root / (".venv-legacy" if install_runtime.RUNTIME_JSON.name == "runtime-legacy.json"
-                             else ".venv") / "bin" / "python")), \
-                 patch.object(install_runtime, "install_requirements") as install, \
-                 patch.object(install_runtime, "verify", side_effect=lambda *a, **k: (
-                     {"ccpl_training_models": True} if k.get("legacy") else {"sklearn": True})):
-                self.assertEqual(install_runtime.main([]), 0)
-            self.assertTrue((root / "runtime.json").is_file())
-            self.assertTrue((root / "runtime-legacy.json").is_file())
-            self.assertEqual(json.loads((root / "runtime-legacy.json").read_text())["profile"], "legacy")
-            # Pipeline with no --packages/--all skips installs; optional legacy installs deps + wheel.
-            self.assertEqual(install.call_count, 1)
-            self.assertEqual(install.call_args.args[1], wheel)
 
-    def test_external_wheel_metadata_and_corruption(self):
-        with tempfile.TemporaryDirectory() as temp:
-            wheel = Path(temp) / "external.whl"
-            with zipfile.ZipFile(wheel, "w") as archive:
-                archive.writestr("PsyTrainer-0.2.0.dist-info/METADATA", "Name: PsyTrainer\nVersion: 0.2.0\n")
-                archive.writestr("PsyTrainer-0.2.0.dist-info/WHEEL", "Tag: cp314-none-any\n")
-            self.assertEqual(install_runtime.wheel_python(wheel), (3, 14))
-            wheel.write_bytes(b"truncated")
-            with self.assertRaisesRegex(SystemExit, "invalid PsyTrainer wheel"):
-                install_runtime.wheel_python(wheel)
 
     def test_allow_missing_fails_and_removes_stale_runtime(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             runtime = root / "runtime.json"
             runtime.write_text('{"ready": true}')
-            with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "discover_optional_wheel", return_value=None):
+            with patch.object(install_runtime, "ROOT", root):
                 with self.assertRaisesRegex(SystemExit, "no longer supported"):
                     install_runtime.main(["--allow-missing-psytrainer"])
             self.assertFalse(runtime.exists())
@@ -102,7 +45,6 @@ class InstallRuntimeTests(unittest.TestCase):
             runtime = root / "runtime.json"
             py = Path(sys.executable)
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "venv_python", return_value=py), \
                  patch.object(install_runtime, "python_version", return_value=(3, 12)), \
                  patch.object(install_runtime, "ensure_venv", side_effect=AssertionError("venv")), \
@@ -119,7 +61,6 @@ class InstallRuntimeTests(unittest.TestCase):
             runtime = root / "runtime.json"
             runtime.write_text('{"ready": true}')
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "venv_python", return_value=Path(sys.executable)), \
                  patch.object(install_runtime, "python_version", return_value=(3, 12)), \
                  patch.object(install_runtime, "install_requirements", side_effect=AssertionError("install")), \
@@ -133,7 +74,6 @@ class InstallRuntimeTests(unittest.TestCase):
             root = Path(temp)
             runtime = root / "runtime.json"
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
                  patch.object(install_runtime, "install_requirements", side_effect=SystemExit("network")):
@@ -146,7 +86,6 @@ class InstallRuntimeTests(unittest.TestCase):
             root = Path(temp)
             runtime = root / "runtime.json"
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
                  patch.object(install_runtime, "install_requirements"), \
@@ -239,17 +178,6 @@ class InstallRuntimeTests(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "uv is not installed"):
                 install_runtime.install_requirements(Path("python"), installer="uv", specs=["xgboost>=2,<4"])
 
-    def test_verification_imports_real_trainer_not_just_package_spec(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            package = root / "ccpl_training_models"
-            package.mkdir()
-            (package / "__init__.py").write_text("")
-            (package / "trainer.py").write_text("raise ImportError('broken dependency')\n")
-            with patch.object(install_runtime, "ROOT", root), \
-                 patch.dict(os.environ, {"PYTHONPATH": str(root)}):
-                with self.assertRaises(subprocess.CalledProcessError):
-                    install_runtime.verify(Path(sys.executable), legacy=True)
 
     def test_requirement_probe_is_offline_and_respects_version_constraints(self):
         from runtime_dependencies import probe
@@ -283,7 +211,7 @@ class InstallRuntimeTests(unittest.TestCase):
                  patch.object(install_runtime, "RUNTIME_JSON", runtime), \
                  patch.object(install_runtime, "VENV_DIR", root / ".venv"), \
                  patch.object(install_runtime, "venv_pip", return_value=root / "pip"):
-                install_runtime.write_runtime(py, {"sklearn": True}, None, [str(py)])
+                install_runtime.write_runtime(py, {"sklearn": True}, [str(py)])
             self.assertEqual(json.loads(runtime.read_text())["python"], str(py.absolute()))
 
     def test_complete_install_publishes_ready_runtime(self):
@@ -292,7 +220,6 @@ class InstallRuntimeTests(unittest.TestCase):
             runtime = root / "runtime.json"
             status = {"pandas": True, "numpy": True, "scipy": True, "joblib": True, "sklearn": True}
             with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
                  patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
                  patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
                  patch.object(install_runtime, "install_requirements"), \
@@ -304,18 +231,6 @@ class InstallRuntimeTests(unittest.TestCase):
             self.assertIsNone(payload["wheel"])
             self.assertEqual(payload["capabilities"], {"pipeline": True, "legacy": False})
 
-    def test_pipeline_install_never_resolves_a_vendor_wheel(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            with patch.dict(os.environ, {"PSYTRAINER_WHEEL": "stale/external.whl"}), \
-                 patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "discover_optional_wheel", return_value=None), \
-                 patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
-                 patch.object(install_runtime, "ensure_venv", return_value=Path(sys.executable)), \
-                 patch.object(install_runtime, "install_requirements") as install, \
-                 patch.object(install_runtime, "verify", return_value={"sklearn": True}):
-                self.assertEqual(install_runtime.main(["--all"]), 0)
-                self.assertIsNone(install.call_args.args[1])
 
     def test_supported_pipeline_python_versions(self):
         for version in ((3, 12), (3, 13), (3, 14)):
@@ -326,31 +241,6 @@ class InstallRuntimeTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "3.12-3.14"):
                     install_runtime.resolve_base_python("python")
 
-    def test_legacy_environment_is_isolated_and_profile_specific(self):
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            marker = root / "runtime.json"
-            marker.write_text('{"ready": true}')
-            wheel = root / "vendor" / "PsyTrainer-0.2.0-cp314-none-any.whl"
-            wheel.parent.mkdir()
-            wheel.write_bytes(b"wheel")
-            with patch.object(install_runtime, "ROOT", root), \
-                 patch.object(install_runtime, "discover_optional_wheel", return_value=wheel), \
-                 patch.object(install_runtime, "wheel_python", return_value=(3, 14)), \
-                 patch.object(install_runtime, "resolve_base_python", return_value=[sys.executable]), \
-                 patch.object(install_runtime, "ensure_venv", side_effect=lambda *a, **k: (
-                     root / (".venv-legacy" if install_runtime.RUNTIME_JSON.name == "runtime-legacy.json"
-                             else ".venv") / "bin" / "python")), \
-                 patch.object(install_runtime, "install_requirements"), \
-                 patch.object(install_runtime, "verify", side_effect=lambda *a, **k: (
-                     {"ccpl_training_models": True} if k.get("legacy") else {"sklearn": True})):
-                self.assertEqual(install_runtime.main([]), 0)
-            payload = json.loads((root / "runtime-legacy.json").read_text())
-            self.assertEqual(payload["profile"], "legacy")
-            self.assertTrue(payload["capabilities"]["legacy"])
-            # Pipeline marker is rewritten by the first install pass.
-            self.assertTrue((root / "runtime.json").is_file())
-            self.assertEqual(json.loads((root / "runtime.json").read_text())["profile"], "pipeline")
 
     def test_venv_python_path_shape(self):
         name = install_runtime.venv_python().name

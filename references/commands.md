@@ -1,12 +1,9 @@
-# Commands
+# Commands (historical INI — unsupported)
 
-This reference describes the original INI engine. Place a single
-`PsyTrainer-*.whl` under `vendor/`, run `scripts/install_runtime.py`, and use
-`runtime-legacy.json` -> `python` as `$PY`. For the independent Pipeline use
-[pipeline.md](pipeline.md). `ml.py capabilities` lists Pipeline models;
-`PSYTRAINER_LEGACY=1 "$PY" scripts/ml.py capabilities` lists the original
-engine's models and metrics. Commands print compact JSON; read only files
-referenced by the response when more detail is needed.
+Optional PsyTrainer wheel / legacy runtime support was removed. Use the
+Pipeline ([pipeline.md](pipeline.md)) and `ml.py capabilities` for current
+models. The sections below document historical INI wrappers that now refuse
+when the old engine is absent; they are retained only as migration reference.
 
 ## Inspect and Configure
 

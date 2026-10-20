@@ -31,7 +31,7 @@ from sklearn.metrics import (accuracy_score, balanced_accuracy_score, f1_score,
 from sklearn.model_selection import (GroupKFold, GroupShuffleSplit, KFold,
                                      StratifiedKFold, TimeSeriesSplit, train_test_split)
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, LabelEncoder
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 from table_io import read_table
 from model_registry import MODELS, create_estimator, versions
@@ -229,7 +229,7 @@ def candidate_options(args, parameters):
     return args
 
 
-def evaluate(model, x, y, task):
+def evaluate(model, x, y, task, positive_index=1):
     predicted = model.predict(x)
     frame = pd.DataFrame({"observed": y, "predicted": predicted}, index=x.index)
     if task == "regression":
@@ -248,15 +248,76 @@ def evaluate(model, x, y, task):
                    "precision_macro": float(precision_score(y, predicted, labels=model.classes_, average="macro", zero_division=0)),
                    "recall_macro": float(recall_score(y, predicted, labels=model.classes_, average="macro", zero_division=0))}
         if len(model.classes_) == 2 and hasattr(model, "predict_proba"):
-            frame["positive_score"] = model.predict_proba(x)[:, 1]
+            frame["positive_score"] = model.predict_proba(x)[:, positive_index]
             frame["positive_probability"] = frame["positive_score"]
         elif len(model.classes_) == 2 and hasattr(model, "decision_function"):
-            frame["positive_score"] = model.decision_function(x)
+            # decision_function is oriented toward classes_[1]; flip it for the other class.
+            frame["positive_score"] = model.decision_function(x) * (1 if positive_index == 1 else -1)
         if "positive_score" in frame and y.nunique() == 2:
-            binary = y == model.classes_[1]
+            binary = y == model.classes_[positive_index]
             metrics["roc_auc"] = float(roc_auc_score(binary, frame.positive_score))
             metrics["average_precision"] = float(average_precision_score(binary, frame.positive_score))
     return metrics, frame
+
+
+def class_order(values, positive=None):
+    """Sorted class labels; a requested positive class is moved to index 1 (binary only)."""
+    classes = sorted(set(values))
+    if positive is None:
+        return classes
+    if len(classes) != 2:
+        raise ValueError("--positive-class is only defined for binary classification")
+    if positive not in classes:
+        raise ValueError(f"--positive-class {positive!r} is not a class; classes are {classes}")
+    return [c for c in classes if c != positive] + [positive]
+
+
+def permutation_test(fit, score, train_y, n_permutations, seed):
+    """Label-permutation test of held-out performance.
+
+    ``fit(y)`` refits the final configuration on training labels ``y`` and
+    ``score(model)`` returns its test score oriented higher-is-better. The
+    null distribution comes from refits on shuffled training labels, so the
+    p-value answers whether test performance exceeds what the same pipeline
+    achieves when features carry no information about the target.
+    """
+    rng = np.random.default_rng(seed)
+    observed = float(score(fit(train_y)))
+    null, failed = [], 0
+    for _ in range(n_permutations):
+        shuffled = pd.Series(rng.permutation(train_y.to_numpy()), index=train_y.index)
+        try:
+            value = float(score(fit(shuffled)))
+        except Exception:
+            failed += 1
+            continue
+        if np.isfinite(value):
+            null.append(value)
+        else:
+            failed += 1
+    if len(null) < max(99, 0.8 * n_permutations):
+        raise ValueError(f"permutation test failed: only {len(null)} of {n_permutations} permutations produced a score")
+    null = np.asarray(null)
+    exceed = int(np.sum(null >= observed))
+    return {"observed_score": observed, "null_scores": null, "exceed": exceed,
+            "p_value": (exceed + 1) / (len(null) + 1), "valid": int(len(null)), "failed": failed}
+
+
+def describe_target(train_y, test_y, task, train_x, test_x):
+    """Descriptive statistics of the outcome and predictor completeness per partition."""
+    result = {}
+    for role, values, features in (("development", train_y, train_x), ("test", test_y, test_x)):
+        entry = {"n": int(len(values)),
+                 "complete_rows": float(features.notna().all(axis=1).mean()) if len(features) else None}
+        if task == "regression":
+            numeric = pd.to_numeric(values, errors="coerce").astype(float)
+            entry.update(mean=float(numeric.mean()), sd=float(numeric.std(ddof=1)) if len(numeric) > 1 else None,
+                         median=float(numeric.median()), min=float(numeric.min()), max=float(numeric.max()))
+        else:
+            counts = values.astype(str).value_counts()
+            entry["counts"] = {str(k): int(v) for k, v in counts.sort_index().items()}
+        result[role] = entry
+    return result
 
 
 def restore_labels(frame, classes):
@@ -283,6 +344,10 @@ def run(args):
     args.sampler_parameters = json.loads(args.resample_params.read_text()) if args.resample_params else {}
     if not isinstance(args.sampler_parameters, dict) or (args.sampler_parameters and args.resample == "none"):
         raise ValueError("resample-params requires a sampler and a JSON object")
+    if args.permutations != 0 and args.permutations < 99:
+        raise ValueError("permutations must be 0 (disabled) or at least 99")
+    if args.positive_class is not None and args.task != "classification":
+        raise ValueError("--positive-class requires --task classification")
     if args.bootstrap != 0 and args.bootstrap < 100:
         raise ValueError("bootstrap must be 0 (disabled) or at least 100")
     if args.split != "time" and args.gap:
@@ -353,13 +418,18 @@ def run(args):
         raise ValueError("development needs target variation; held-out test needs at least two samples")
     if args.task == "classification" and set(test_y) - set(train_y):
         raise ValueError("test contains classes absent from development data")
-    label_classes = None
-    if args.task == "classification":
-        encoder = LabelEncoder().fit(train_y)
-        label_classes = list(encoder.classes_)
-        train_y = pd.Series(encoder.transform(train_y), index=train_y.index)
-        test_y = pd.Series(encoder.transform(test_y), index=test_y.index)
+    target_summary = describe_target(train_y, test_y, args.task, train_x, test_x)
+    # Folds come from the original labels so the choice of positive class cannot change them.
     folds = cv_indices(train_x, train_y, train_meta, args)
+    label_classes, report_classes, positive_index = None, None, 1
+    if args.task == "classification":
+        # Models always see sorted label codes; the positive class only changes how scores are read.
+        label_classes = class_order(train_y)
+        report_classes = class_order(train_y, args.positive_class)
+        positive_index = label_classes.index(report_classes[1]) if len(label_classes) == 2 else 1
+        code = {label: i for i, label in enumerate(label_classes)}
+        train_y = train_y.map(code).astype(int)
+        test_y = test_y.map(code).astype(int)
     if args.pca > min(min(len(tr) for tr, _ in folds), args.select_k or x.shape[1]):
         raise ValueError("PCA components exceed a training fold's samples or selected features")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -432,7 +502,7 @@ def run(args):
                                 record = {"model": tag, "fold": number, "score": direction * score,
                                           "train_score": direction * train_score,
                                           "train_n": len(tr), "validation_n": len(va)}
-                                fold_metrics, fold_predictions = evaluate(fitted, train_x.iloc[va], train_y.iloc[va], args.task)
+                                fold_metrics, fold_predictions = evaluate(fitted, train_x.iloc[va], train_y.iloc[va], args.task, positive_index)
                                 record.update({f"validation_{key}": value for key, value in fold_metrics.items()})
                                 fold_predictions["fold"], fold_predictions["model"] = number, tag
                                 inner_audit = []
@@ -488,18 +558,35 @@ def run(args):
                 joblib.dump({"schema": "psytrainer-pipeline/v1", "pipeline": fitted_candidate,
                     "features": list(x.columns), "task": args.task, "target": args.target,
                     "impute": args.impute, "label_classes": label_classes}, candidate_dir / f"{tag}.joblib")
-        metrics, predictions = evaluate(best, test_x, test_y, args.task)
+        metrics, predictions = evaluate(best, test_x, test_y, args.task, positive_index)
         predictions = restore_labels(predictions, label_classes)
         if not all(v is None or np.isfinite(v) for v in metrics.values()):
             raise ValueError("non-finite test metrics")
         predictions.to_csv(output / "test-predictions.csv", index_label="sample_id")
         baseline.fit(train_x, train_y)
-        baseline_metrics, baseline_predictions = evaluate(baseline, test_x, test_y, args.task)
+        baseline_metrics, baseline_predictions = evaluate(baseline, test_x, test_y, args.task, positive_index)
         baseline_predictions = restore_labels(baseline_predictions, label_classes)
         baseline_predictions.to_csv(output / "baseline-predictions.csv", index_label="sample_id")
         from pipeline_analysis import feature_shift
         feature_shift(train_x, test_x).to_csv(output / "feature-shift.csv", index=False)
         train_x.corr(method="spearman").to_csv(output / "feature-correlations.csv", index_label="feature")
+        permutation = None
+        if args.permutations:
+            print(f"Permutation test: {args.permutations} refits of {selected} on shuffled training labels")
+            result = permutation_test(
+                lambda labels: configured_pipeline(model, args, selected_parameters, train_x, labels, train_meta).fit(train_x, labels),
+                lambda fitted: scorer(fitted, test_x, test_y), train_y, args.permutations, args.seed)
+            sign = -1 if direction < 0 else 1  # report losses as positive values
+            null = sign * result["null_scores"]
+            pd.DataFrame({"permutation": np.arange(1, len(null) + 1), "score": null}).to_csv(
+                output / "permutation-null.csv", index=False)
+            permutation = {"metric": args.metric, "permutations": args.permutations, "valid": result["valid"],
+                           "failed": result["failed"], "observed": sign * result["observed_score"],
+                           "null_mean": float(null.mean()), "null_sd": float(null.std(ddof=1)),
+                           "exceed": result["exceed"], "p_value": result["p_value"],
+                           "scheme": "refit final configuration on permuted training labels; score on unchanged test set"}
+            if args.split != "random":
+                warnings.append("Permutation test shuffles individual training labels; group/time dependence is not preserved.")
         importance = None
         if args.metric != "roc_auc" or test_y.nunique() == 2:
             perm = permutation_importance(best, test_x, test_y, scoring=scorer,
@@ -525,7 +612,7 @@ def run(args):
                "bootstrap_repeats": args.bootstrap,
                "score_kind": ("probability" if "positive_probability" in predictions else
                               "decision" if "positive_score" in predictions else "none"),
-               "classes": label_classes or [],
+               "classes": report_classes or [],  # binary: second entry is the positive class
                "class_labels": label_classes,
                "search": {"method": args.search, "max_candidates": args.max_candidates,
                           "evaluated_candidates": len(search_records), "selected_parameters": selected_parameters,
@@ -538,6 +625,9 @@ def run(args):
                                     ("select_k", "scaler", "selection", "f_threshold", "forward_tol", "pca", "resample")}},
                "importance_repeats": args.repeats, "failures": failures, "warnings": warnings,
                "question": args.question, "language": args.language,
+               "target_summary": target_summary,
+               "permutation_test": permutation,
+               "positive_class": report_classes[1] if report_classes and len(report_classes) == 2 else None,
                "model_backend": "local-registry/v1", "model_parameters": parameters,
                "versions": software,
                "inputs": inputs,
@@ -546,7 +636,7 @@ def run(args):
                                         for k, v in best.named_steps["model"].get_params().items()}}
     write_json(output / "summary.json", summary)
     from pipeline_report import generate_report
-    generate_report(output)
+    generate_report(output, context=args.context)
     return {"status": "completed", "selected_model": selected, "test_metrics": metrics,
             "summary": str(output / "summary.json"), "report": str(output / "report.docx"),
             "analysis": str(output / "analysis.json"),
@@ -625,14 +715,21 @@ def parser():
     t.add_argument("--repeats", type=int, default=10)
     t.add_argument("--bootstrap", type=int, default=500,
                    help="Test percentile bootstrap repeats, 0 to disable; time designs omit intervals")
+    t.add_argument("--positive-class", help="Binary classification: class treated as positive for AUC, AP, calibration and thresholds")
+    t.add_argument("--permutations", type=int, default=0,
+                   help="Label-permutation test of test performance (refits the final model N times; 0 disables, e.g. 1000)")
     t.add_argument("--language", choices=("zh", "en"), default="zh")
     t.add_argument("--question", default="")
+    t.add_argument("--context", type=Path,
+                   help="JSON report context: target_label, target_unit, tolerance, feature_labels, class_labels, background")
     pr = commands.add_parser("predict", help="Load only trusted local joblib files")
     pr.add_argument("--probabilities", action="store_true", help="Include class probabilities when supported")
     for name in ("features", "model", "output"):
         pr.add_argument(f"--{name}", type=Path, required=True)
-    r = commands.add_parser("report")
+    r = commands.add_parser("report", help="Regenerate figures and reports from saved results without retraining")
     r.add_argument("directory", type=Path)
+    r.add_argument("--context", type=Path, help="JSON report context saved as report-context.json for later regenerations")
+    r.add_argument("--language", choices=("zh", "en"), help="Override the run's report language")
     return p
 
 
@@ -648,8 +745,9 @@ def main(argv=None):
                 from runtime_dependencies import REPORT, ensure
                 ensure(REPORT)
             from pipeline_report import generate_report
-            generate_report(args.directory)
-            value = {"report": str((args.directory / "report.docx").resolve())}
+            generate_report(args.directory, context=args.context, language=args.language)
+            value = {"report": str((args.directory / "report.docx").resolve()),
+                     "markdown": str((args.directory / "report.md").resolve())}
         print(json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")))
         return 0
     except Exception as exc:

@@ -10,7 +10,8 @@
 - 支持随机、分组、时间交叉验证，以及内部留出测试集或单独提供的外部测试集。
 - 比较候选模型，分析训练与验证差距、相对基线的收益、误差结构、校准、特征依赖、输入分布变化和分组/时间稳定性。
 - 输出 PDF、可编辑 SVG、600 dpi PNG 图表，以及中文或英文的技术报告 `report.docx` / `report.md`。
-- 报告采用摘要—方法—结果—讨论体例；每个成功训练的模型有独立结果节（模型较多时另写 `reports/<模型>.md`），汇总表仅作附录。
+- 报告以结论为先：结构化摘要（目的/方法/结果/结论）和要点直接回答研究问题——特征是否优于不使用特征的基线、优势多大、主要依赖哪些变量；随后是方法、嵌入图表的结果、证据强度与本次数据实际触发的问题、局限和后续建议；附录给出各模型逐折结果、指标释义和读图指南。
+- 可选 `--context ctx.json` 提供变量含义、单位、可接受误差等；`report 目录 --context ctx.json` 无需重训即可重新生成报告。
 - 保存包含预处理的模型、预测结果、数据划分、指标和来源记录，便于复核。
 - 支持有预算的网格/随机搜索、逐步前向与 F 阈值筛选、七种分类重采样，以及校验数据和配置后续跑。
 
@@ -102,9 +103,8 @@ Windows CMD 用户在 Skill 目录内执行 `scripts\install_runtime.cmd`。
 
 运行环境配置脚本默认只创建 `.venv` 并记录解释器路径，不下载模型依赖。`runtime.json` 的 `ready: true` 表示环境已创建；每次执行任务都会重新检查本次需要的依赖及版本，不以旧标记代替检查。
 
-默认 Pipeline 路径不需要 PsyTrainer wheel；历史 INI 兼容可将唯一的
-`PsyTrainer-*.whl` 放进 `vendor/` 后可选启用（无 CLI 开关，详见
-[setup](references/setup.md)）。
+本 Skill 仅提供 Pipeline（`scripts/pipeline_train.py`），不再包含 optional
+PsyTrainer wheel / `vendor/` / legacy INI 路径。
 默认训练只准备基础建模、绘图和 Word 报告依赖；选用 LightGBM、XGBoost、CatBoost 时才安装相应库，使用重采样时才安装 imbalanced-learn。预测按所加载模型补齐依赖，重新生成报告不安装无关模型库。已有包满足要求时不联网下载。主动预装某个包可用 `--packages xgboost`；只有明确需要完整预装或发布测试时才用 `--all`。
 
 macOS 如遇 LightGBM 的 OpenMP 动态库错误，需要安装系统库 `brew install libomp` 后重试。安装过程中会显示原始错误。
@@ -177,6 +177,9 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 | 显式填补缺失特征 | `--impute median` |
 | 指定研究问题 | `--question "基线指标能否预测后续评分？"` |
 | 英文报告 | `--language en` |
+| 二分类的正类（AUC、校准等以它为准） | `--positive-class case` |
+| 置换检验（模型是否显著高于随机水平，给出 p 值） | `--permutations 1000`（最终模型会额外重训 1000 次） |
+| 报告中的变量含义、单位、可接受误差 | `--context ctx.json`（键见 [Pipeline 参考](references/pipeline.md#report-context)） |
 | 配置算法参数 | `--model-params config/models.json`，内容按模型名称映射到参数对象 |
 | 搜索参数或比较预处理组合 | `--search grid` 或 `--search random --max-candidates 12`；自定义 `--search-space config/search.json` |
 | 逐步前向筛选 | `--selection forward --select-k 3`，内部验证保持分组/时间约束 |
@@ -191,8 +194,9 @@ Windows PowerShell 将命令开头的 `.venv/bin/python` 换成 `& .\.venv\Scrip
 
 | 文件 | 内容 |
 |---|---|
-| `report.docx` / `report.md` | 技术报告：方法、各模型结果、图表、讨论与附录 |
-| `reports/<模型>.*` | 模型数较多时的分模型结果报告（总报告中索引） |
+| `report.docx` / `report.md` | 技术报告：摘要与要点、方法、结果（含图表）、讨论与附录 |
+| `reports/<模型>.*` | 模型数较多时的分模型逐折结果（总报告附录 A 索引） |
+| `report-context.json` | 可选的变量含义、单位与可接受误差，重新生成报告时复用 |
 | `figures/` | PDF、SVG、PNG 图及图注/数据来源清单 |
 | `summary.json` / `analysis.json` | 指标、模型比较、数值证据和诊断结论 |
 | `pipeline.joblib` | 拟合后的预处理与模型，可用于新数据预测 |

@@ -4,8 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
 from report_explanations import (FIGURES, figure_guide, metric_explanation, preprocessing,
-                                 abstract, validation_methods, result_summary, discussion,
-                                 uncertainty_description, model_result_paragraphs, model_name,
+                                 validation_methods, uncertainty_description, model_name,
                                  PER_MODEL_SPLIT_THRESHOLD)
 
 
@@ -48,33 +47,6 @@ class ReportExplanationTests(unittest.TestCase):
                                {'findings': [finding]}, True)
         self.assertIn(('结果', finding['zh']), rows)
 
-    def test_primary_result_respects_loss_direction_and_interval_crossing_zero(self):
-        summary = {'metric': 'mae', 'direction': 'lower'}
-        row = {'metric': 'mae', 'estimate': .3, 'baseline': .5, 'gain': .2,
-               'lower': .1, 'upper': .6, 'gain_lower': -.1, 'gain_upper': .4}
-        text = result_summary(summary, [row], True)
-        self.assertIn('低于基线', text)
-        self.assertIn('区间包含零', text)
-        self.assertNotIn('显著', text)
-        row.update(estimate=.7, gain=-.2, gain_lower=-.5, gain_upper=-.1)
-        self.assertIn('高于基线', result_summary(summary, [row], True))
-        self.assertIn('区间位于零以下', result_summary(summary, [row], True))
-        row.update(estimate=.5, gain=0, lower=None, upper=None, gain_lower=None, gain_upper=None)
-        self.assertIn('等于基线', result_summary(summary, [row], True))
-        self.assertNotIn('CI', result_summary(summary, [row], True))
-
-    def test_primary_metric_alias_and_undefined_value(self):
-        summary = {'metric': 'precision', 'direction': 'higher'}
-        row = {'metric': 'precision_macro', 'estimate': .8, 'baseline': .3, 'gain': .5,
-               'gain_lower': .1, 'gain_upper': .7}
-        self.assertIn('高于基线', result_summary(summary, [row], True))
-        self.assertIn('above zero', result_summary(summary, [row], False))
-        row['estimate'] = None
-        for zh in (True, False):
-            text = result_summary(summary, [row], zh)
-            self.assertIn('未能计算' if zh else 'undefined', text)
-            self.assertNotIn('0.000', text)
-
     def test_methods_and_scope_follow_actual_design(self):
         summary = {'task': 'classification', 'split': 'group', 'external_test': True,
                    'seed': 42, 'cv_folds': 3, 'gap': 2, 'test_n': 24}
@@ -83,21 +55,8 @@ class ReportExplanationTests(unittest.TestCase):
             self.assertIn('外部' if zh else 'external', text)
             self.assertIn('GroupKFold', text)
             self.assertNotIn('时间块' if zh else 'time blocks', text)
-            notes = ' '.join(discussion(summary, {'interval': {'units': 6}}, zh))
-            self.assertNotIn('内部留出' if zh else 'internal holdout', notes)
-            self.assertIn('新的独立测试' if zh else 'new independent test', notes)
-            self.assertIn('因果' if zh else 'causal', notes)
         summary['split'] = 'time'
         self.assertIn('2 个时间块', ' '.join(validation_methods(summary, True)))
-
-    def test_abstract_does_not_invent_primary_score(self):
-        s = {'target': 'outcome', 'feature_n': 4, 'development_n': 96, 'test_n': 24,
-             'cv_folds': 3, 'selected_model': 'ModelLRClassifier', 'metric': 'precision',
-             'split': 'group', 'external_test': True, 'test_metrics': {'precision_macro': None}}
-        for zh in (True, False):
-            text = abstract(s, zh)
-            self.assertIn('未能计算' if zh else 'undefined', text)
-            self.assertIn('外部' if zh else 'external', text)
 
     def test_f_threshold_includes_boundary_in_description(self):
         s = {'preprocessing': {'selection': 'f-threshold', 'f_threshold': 5}}
@@ -111,25 +70,18 @@ class ReportExplanationTests(unittest.TestCase):
             self.assertNotIn('95%', text)
             self.assertIn('时间' if zh else 'Time', text)
 
-    def test_undefined_constant_baseline_is_explained(self):
-        s = {'metric': 'pearson_r', 'direction': 'higher'}
-        rows = [{'metric': 'pearson_r', 'estimate': .8, 'baseline': None, 'gain': None}]
-        for zh in (True, False):
-            self.assertIn('常量' if zh else 'constant', result_summary(s, rows, zh))
-
-    def test_each_successful_model_has_dedicated_prose(self):
-        summary = {'selected_model': 'ModelLRRegressor', 'metric': 'mae', 'test_n': 20,
-                   'test_metrics': {'mae': .25, 'mse': .1}}
-        selected = model_result_paragraphs(
-            {'model': 'ModelLRRegressor', 'mean': .3, 'sd': .05, 'folds': 3},
-            summary, [.2, .3, .4], {'fit_intercept': True}, True)
-        self.assertTrue(any('最终选定' in line for line in selected))
-        self.assertTrue(any('mae=0.25' in line for line in selected))
-        self.assertTrue(any('fit_intercept' in line for line in selected))
-        other = model_result_paragraphs(
-            {'model': 'ModelRandomForestRegressor', 'mean': .4, 'sd': .1, 'folds': 3},
-            summary, [.35, .4, .45], None, True)
-        self.assertTrue(any('候选' in line for line in other))
-        self.assertFalse(any('mae=0.25' in line for line in other))
+    def test_model_names_and_split_threshold(self):
         self.assertIn('随机森林', model_name('ModelRandomForestRegressor', True))
         self.assertGreaterEqual(PER_MODEL_SPLIT_THRESHOLD, 4)
+
+    def test_interval_description_is_concise_and_scoped(self):
+        interval = {'method': 'row percentile bootstrap', 'requested_repeats': 200, 'units': 60, 'omitted_reason': None}
+        for zh in (True, False):
+            text = ' '.join(uncertainty_description(interval, zh))
+            self.assertIn('95%', text)
+            self.assertIn('200', text)
+            self.assertIn('模型选择' if zh else 'selection', text)
+
+
+if __name__ == '__main__':
+    unittest.main()

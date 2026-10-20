@@ -59,7 +59,13 @@ Class encoding is internal, and output labels retain their original names.
   `balanced_accuracy` (default), `accuracy`, macro `f1`/`precision`/`recall`, binary `roc_auc`.
   Selection uses standard sklearn scoring with proper loss direction. Displayed
   losses are positive. ROC AUC requires two classes in every validation fold.
-  Positive class is the second entry in the saved sorted `classes` list.
+  The positive class (AUC, average precision, calibration, thresholds, the
+  `positive_score` column) is `--positive-class` when given, otherwise the second
+  class in sorted order; `summary.json` records it as `positive_class` and lists it
+  second in `classes`. Models always see sorted label codes and CV folds come from
+  the original labels, so the choice changes only how scores are read: model
+  selection and symmetric metrics (accuracy, balanced accuracy, AUC, macro F1)
+  are identical either way.
 
 ## Migrated training options
 
@@ -158,28 +164,69 @@ The command returns one compact JSON result. Full artifacts remain on disk:
 | `strata-metrics.csv`, `strata-membership.csv` | Group or ordered time-block performance with counts and auditable membership |
 | `importance.csv`, `importance-repeats.csv` | Test permutation importance, all features and repeats |
 | `figures/` | 180 mm figures in PDF, editable SVG and 600 dpi PNG; caption/source manifest |
-| `report.docx`, `report.md` | Technical report: abstract, methods, per-model results, figures, discussion, appendices |
-| `reports/<Model>.md`, `.docx` | Per-model results when ≥4 models succeed (indexed by the overview report) |
+| `report.docx`, `report.md` | Findings-first technical report (same content in both formats) |
+| `reports/<Model>.md`, `.docx` | Per-model fold results when ≥4 models succeed (indexed in Appendix A) |
+| `report-context.json` | Optional researcher-supplied variable meanings, units and tolerance |
 | `run.log` | Detailed model output and warnings |
 
 Use `--language zh` (default) or `en`; `--question "..."` adds the actual research
 question. Reports are deterministic templates filled from measured results,
 with no LLM calls, invented references or novelty claims. Report regeneration
-reads JSON/CSVs rather than loading a pickle or retraining.
+reads JSON/CSVs rather than loading a pickle or retraining; `report DIR
+--language en` switches language and `report DIR --context ctx.json` adds context.
 
-Reports use an academic abstract/methods/results/discussion structure, with
-plain-language metric definitions in an appendix. Results retain measured values,
-baseline direction and supported intervals. Every successfully trained model has
-its own results subsection (validation folds, search configuration when present,
-and held-out metrics for the selected model only). When four or more models
-succeed, the overview report indexes dedicated `reports/<ModelTag>.md` and
-`.docx` files instead of inlining every section. A validation summary table is
-appendix-only and must not be the sole model presentation. General limitations
-are consolidated in the discussion; figure notes explain only their local
-statistical meaning. The editorial approach adapts ResearchFlow's
-`academic-defensive-editing` principles: remove repeated disclaimers, preserve
-consequential qualifications, and avoid strengthening claims. This is built into
-local templates and requires no additional Skill or model call.
+### Report structure
+
+1. **Abstract** (objective / methods / results / conclusion) and numbered **key
+   findings**. The conclusion answers whether the features predict the outcome:
+   *supported* when the improvement over the dummy baseline (same bootstrap
+   samples) has a 95% CI excluding 0; *supported (point estimate only)* when no interval is
+   available; *uncertain* when the interval includes zero; *not supported* when
+   the model does not beat the baseline.
+2. **Methods**: data (counts, outcome distribution or class mix per partition,
+   completeness, predictor list), validation design, preprocessing, candidates
+   with model family, and evaluation/statistics (primary metric, baseline rule,
+   bootstrap, permutation importance; binary positive class named).
+3. **Results**: model comparison table and figure; test table with intervals,
+   baseline and paired improvement; error structure (regression residuals,
+   tolerance share; classification per-class recall, most common confusion,
+   calibration); predictor reliance table; development/test comparability;
+   group/time strata. Figures sit inside the subsection that discusses them.
+4. **Discussion**: answer with magnitude, a hedged reading of the model-family
+   comparison, evidence strength (what supports and what limits the conclusion),
+   data issues actually triggered in this run, one consolidated limitations
+   paragraph, and next steps generated from the findings.
+5. **Appendices**: per-model fold tables (or files), metric definitions,
+   figure-reading guide, reproducibility.
+
+Fixed, documented rules decide wording. Candidate standing uses the gap to the
+selected model in pooled between-fold SD units (≤1 close, 1–3 weaker, >3 clearly
+weaker). Data issues are raised only when triggered: standardized mean shift
+≥0.5 development SD, missingness difference ≥10 percentage points, ≥10% of test
+values outside the development range, Spearman |ρ| ≥0.7 between important
+features, or ECE >0.1. A feature is called negligible when its mean permutation
+decrease is non-positive, or below 2% of positive importance and within two
+repeat SDs. A family reading ("linear beats non-linear suggests an approximately
+linear relationship") is phrased as a reading of the comparison, never as a test
+of mechanism. Overfitting is mentioned when the train−validation gap exceeds half
+the validation score. Only the selected model is evaluated on the test set.
+
+### Wording conventions
+
+Wording follows ML papers in psychology: training/test set, cross-validation
+(M, SD across folds), a named dummy baseline, APA statistics with two decimals
+(`MAE = 0.16, 95% CI [0.11, 0.21]`), "X% lower than baseline (difference =,
+95% CI [...])", permutation importance as `ΔMAE = …, SD = …`, and R² stated as
+variance explained. Development/validation jargon specific to this tool
+("开发集", "配对改善", importance shares) is not used.
+
+### Report context
+
+`--context ctx.json` (train or report) accepts optional keys: `question`, `title`,
+`background`, `population`, `target_label`, `target_unit`, `tolerance` (positive,
+target units), `feature_labels` and `class_labels` (name → label maps). Unknown
+keys fail. The validated file is saved as `report-context.json` and reused on
+regeneration. Context changes wording only; it never changes computed results.
 
 Report organization adapts the question/outline/evidence/consistency principles
 of academic-paper-strategist and academic-paper-composer to empirical ML.
@@ -196,6 +243,15 @@ probability calibration with bin counts, and threshold trade-offs; permutation
 reliance, feature correlation, input shift, and group/time stability.
 The report translates measured findings into bounded development-set follow-ups,
 without selecting thresholds, removing features or retuning against the test set.
+
+`--permutations N` (0 = off; at least 99, 1000 recommended for publication) adds a
+label-permutation test of held-out performance: the final configuration is
+refitted N times on shuffled training labels and scored on the unchanged test set.
+p = (number of permuted scores ≥ observed + 1)/(valid permutations + 1), so the
+smallest reportable p is 1/(N+1). This costs N extra final fits (including any
+forward selection), and row-level shuffling ignores group/time dependence, which
+the report states. Results: `permutation_test` in `summary.json`,
+`permutation-null.csv`, and a null-distribution figure.
 
 `--bootstrap 500` is the default; use 0 to disable or at least 100 repeats.
 Random designs resample test rows; grouped designs resample entire test groups

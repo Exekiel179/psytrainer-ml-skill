@@ -157,6 +157,55 @@ class PipelineTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "repeats"):
                 runner.run(args)
 
+    def test_class_order_and_permutation_test_helpers(self):
+        self.assertEqual(runner.class_order(["case", "control", "case"]), ["case", "control"])
+        self.assertEqual(runner.class_order(["case", "control"], "case"), ["control", "case"])
+        with self.assertRaisesRegex(ValueError, "not a class"):
+            runner.class_order(["a", "b"], "c")
+        with self.assertRaisesRegex(ValueError, "binary"):
+            runner.class_order(["a", "b", "c"], "a")
+        labels = pd.Series(np.r_[np.zeros(50), np.ones(50)])
+        # Score equals the fraction of labels left in their original position: high only when unshuffled.
+        result = runner.permutation_test(lambda y: y, lambda y: float(np.mean(y.to_numpy() == labels.to_numpy())),
+                                         labels, 199, 0)
+        self.assertEqual(result["exceed"], 0)
+        self.assertAlmostEqual(result["p_value"], 1 / 200)
+        self.assertEqual(result["valid"], 199)
+
+    def test_positive_class_changes_reading_not_results(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            args, x, y, meta = self.data(root)
+            rng = np.random.default_rng(3)
+            classes = pd.DataFrame({"group": np.where(x.a + rng.normal(size=len(x)) * .5 > 0, "case", "control")}, index=x.index)
+            classes.to_csv(root / "c.csv")
+            summaries = {}
+            for name, positive in (("default", None), ("case", "case")):
+                argv = ["train", "--features", str(root / "x.csv"), "--labels", str(root / "c.csv"), "--target", "group",
+                        "--task", "classification", "--output-dir", str(root / name), "--cv", "3", "--repeats", "2",
+                        "--bootstrap", "0", "--model", "ModelLRClassifier", "--model", "ModelRandomForestClassifier"]
+                if positive:
+                    argv += ["--positive-class", positive, "--permutations", "99"]
+                with patch("pipeline_report.generate_report"):
+                    runner.run(runner.parser().parse_args(argv))
+                summaries[name] = json.loads((root / name / "summary.json").read_text())
+            a, b = summaries["default"], summaries["case"]
+            self.assertEqual(a["positive_class"], "control")
+            self.assertEqual(b["positive_class"], "case")
+            self.assertEqual(b["classes"], ["control", "case"])
+            self.assertEqual(a["comparison"], b["comparison"])
+            for key in ("accuracy", "balanced_accuracy", "roc_auc"):
+                self.assertAlmostEqual(a["test_metrics"][key], b["test_metrics"][key])
+            test = b["permutation_test"]
+            self.assertEqual(test["valid"], 99)
+            self.assertLess(test["p_value"], .05)
+            self.assertTrue((root / "case" / "permutation-null.csv").is_file())
+            self.assertIsNone(a["permutation_test"])
+            pred = pd.read_csv(root / "case" / "test-predictions.csv")
+            case_rate = pred.loc[pred.observed == "case", "positive_score"].mean()
+            control_rate = pred.loc[pred.observed == "control", "positive_score"].mean()
+            self.assertGreater(case_rate, control_rate)
+
 
 if __name__ == "__main__":
     unittest.main()
