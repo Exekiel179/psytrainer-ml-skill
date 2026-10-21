@@ -31,8 +31,13 @@ def diagnostic_plots(directory, summary, add):
         else:
             ax.scatter(xx, yy, color=color, s=13, alpha=.6, linewidths=0, rasterized=True)
 
+    basic = summary.get("analysis_level", "basic") == "basic"
     names = [r["model"] for r in summary["comparison"]]
-    fig, (ax, bx) = panels(height=max(3.5, .45 * len(names) + 1.8))
+    if basic:
+        fig, axes = panels(cols=1, height=max(3.2, .4 * len(names) + 1.6))
+        ax, bx = axes[0], None
+    else:
+        fig, (ax, bx) = panels(height=max(3.5, .45 * len(names) + 1.8))
     direction = 1 if summary["direction"] == "higher" else -1
     for i, name in enumerate(names):
         rows = cv[cv.model == name].sort_values("fold")
@@ -40,6 +45,8 @@ def diagnostic_plots(directory, summary, add):
             ax.plot([row.train_score, row.score], [i - .12, i + .12], color=GRAY, alpha=.3, linewidth=.7)
         ax.scatter(rows.train_score, np.full(len(rows), i - .12), color=GRAY, s=16, label="Training" if i == 0 else None)
         ax.scatter(rows.score, np.full(len(rows), i + .12), color=BLUE, s=20, label="Validation" if i == 0 else None)
+        if bx is None:
+            continue
         gains = direction * (rows.score.to_numpy() - base_cv.loc[rows.fold, "score"].to_numpy())
         if np.isfinite(gains).all():
             bx.scatter(gains, np.full(len(gains), i) + np.linspace(-.1, .1, len(gains)), color=GRAY, s=15)
@@ -50,30 +57,34 @@ def diagnostic_plots(directory, summary, add):
     from report_explanations import model_name
     labels = [textwrap.fill(model_name(name, False)[:1].upper() + model_name(name, False)[1:], 19) for name in names]
     for axis in (ax, bx):
+        if axis is None:
+            continue
         axis.set_yticks(range(len(names)), labels if axis is ax else [])
         axis.set_ylim(len(names) - .5, -.5)
     ax.set_xlabel(f"{summary['metric']} ({summary['direction']} is better)")
     ax.legend(loc="upper center", bbox_to_anchor=(.5, -.22), ncol=2)
-    bx.axvline(0, color=GRAY, ls="--", lw=.8)
-    bx.set_xlabel("Validation gain over dummy baseline")
     title(ax, "a", "Training versus validation")
-    title(bx, "b", "Paired baseline comparison")
+    if bx is not None:
+        bx.axvline(0, color=GRAY, ls="--", lw=.8)
+        bx.set_xlabel("Validation gain over dummy baseline")
+        title(bx, "b", "Paired baseline comparison")
     add(fig, "model-validation", (f"模型验证（{summary['cv_folds']} 折，共享划分）。a，每折训练与验证得分的连线用于检查泛化差距。b，同一验证折内相对简单基线的有向增益，正值更好；点为折，绿色为均值±样本标准差，非置信区间。基线在对应训练折拟合，不参与候选模型选择。" if zh else
         f"Model validation ({summary['cv_folds']} shared folds). a, paired training/validation scores. b, oriented within-fold gain over a training-fold-fitted dummy baseline; positive is better. Gray: folds; green: mean and sample SD, not CI. The dummy does not participate in candidate selection."), "cv-scores.csv; baseline-cv.csv")
 
     primary = {"f1": "f1_macro", "precision": "precision_macro", "recall": "recall_macro"}.get(summary["metric"], summary["metric"])
     row = metrics.loc[primary]
-    fig, ax = plt.subplots(figsize=(7.09, 2.7), layout="constrained")
-    ax.scatter([row.estimate, row.baseline], [1, 0], c=[BLUE, GRAY], s=35)
-    if pd.notna(row.lower):
-        ax.hlines(1, row.lower, row.upper, color=BLUE, linewidth=1.4)
-        ax.plot([row.lower, row.upper], [1, 1], "|", color=BLUE)
-    ax.set_yticks([0, 1], ["Dummy baseline", "Selected model"])
-    ax.set_ylim(-.6, 1.6)
-    ax.set_xlabel(f"Held-out {primary} ({summary['direction']} is better)")
-    title(ax, "a", "Held-out performance and uncertainty")
-    add(fig, "test-performance", (f"独立测试主要指标（n={n}）。蓝色为所选模型，灰色为基线模型。若可计算，线段为模型指标 95% 百分位 bootstrap 区间；随机设计按行、分组设计按整组重采样，时间设计不绘制区间。基线仅显示点估计；相对基线的差值及其区间见源表。区间不覆盖训练和模型选择不确定性。" if zh else
-        f"Held-out primary metric (n={n}). Blue: selected model; gray: training-fitted baseline point estimate. Where defined, model bars are 95% percentile bootstrap intervals (rows for random, whole groups for group designs; omitted for time). Paired gain intervals are in the source table. Training/selection uncertainty is excluded."), "metric-intervals.csv; analysis.json")
+    if not basic:
+        fig, ax = plt.subplots(figsize=(7.09, 2.7), layout="constrained")
+        ax.scatter([row.estimate, row.baseline], [1, 0], c=[BLUE, GRAY], s=35)
+        if pd.notna(row.lower):
+            ax.hlines(1, row.lower, row.upper, color=BLUE, linewidth=1.4)
+            ax.plot([row.lower, row.upper], [1, 1], "|", color=BLUE)
+        ax.set_yticks([0, 1], ["Dummy baseline", "Selected model"])
+        ax.set_ylim(-.6, 1.6)
+        ax.set_xlabel(f"Held-out {primary} ({summary['direction']} is better)")
+        title(ax, "a", "Held-out performance and uncertainty")
+        add(fig, "test-performance", (f"独立测试主要指标（n={n}）。蓝色为所选模型，灰色为基线模型。若可计算，线段为模型指标 95% 百分位 bootstrap 区间；随机设计按行、分组设计按整组重采样，时间设计不绘制区间。基线仅显示点估计；相对基线的差值及其区间见源表。区间不覆盖训练和模型选择不确定性。" if zh else
+            f"Held-out primary metric (n={n}). Blue: selected model; gray: training-fitted baseline point estimate. Where defined, model bars are 95% percentile bootstrap intervals (rows for random, whole groups for group designs; omitted for time). Paired gain intervals are in the source table. Training/selection uncertainty is excluded."), "metric-intervals.csv; analysis.json")
 
     test = summary.get("permutation_test")
     if test and (directory / "permutation-null.csv").exists():
@@ -218,26 +229,27 @@ def diagnostic_plots(directory, summary, add):
             add(fig, "feature-correlation", (f"训练集原始特征的 Spearman 相关，使用成对非缺失样本；常量或样本不足时为空。展示测试重要性前 {len(features)} 个特征，完整矩阵另存。不以此筛选模型。相关特征可能相互替代，因而单列置换重要性偏低；相关性不是因果证据。映射：{mapping}。" if zh else
                 f"Training raw-feature Spearman correlations using pairwise complete observations; constant/insufficient pairs are blank. Top {len(features)} test-reliance features displayed; full matrix retained. No model selection uses this view. Correlated features can substitute, masking single-feature reliance; not causal evidence. Key: {mapping}."), "feature-correlations.csv; importance.csv")
 
-    shift = pd.read_csv(directory / "feature-shift.csv", dtype={"feature": str})
-    shift["magnitude"] = shift.standardized_mean_shift.abs()
-    shown = shift.sort_values("magnitude", ascending=False, na_position="last").head(12).iloc[::-1]
-    fig, (ax, bx) = panels(height=max(3.8, .28 * len(shown) + 1.6))
-    yy = np.arange(len(shown))
-    ax.scatter(shown.standardized_mean_shift, yy, color=ORANGE, s=22)
-    ax.axvline(0, color=GRAY, ls="--", lw=.8)
-    ax.set_yticks(yy, [textwrap.fill(f, 20) for f in shown.feature])
-    ax.set_xlabel("(Test mean - training mean) / SD")
-    bx.scatter(shown.development_missing, yy-.1, color=GRAY, label="Development", s=18)
-    bx.scatter(shown.test_missing, yy+.1, color=BLUE, label="Test", s=22)
-    bx.set_yticks(yy, [])
-    bx.set(xlabel="Missing fraction", xlim=(-.03, 1.03))
-    bx.legend(loc="upper center", bbox_to_anchor=(.5, -.22), ncol=2, fontsize=7)
-    for axis in (ax, bx):
-        axis.set_ylim(-.5, len(shown)-.5)
-    title(ax, "a", "Feature distribution shift")
-    title(bx, "b", "Missingness shift")
-    add(fig, "feature-shift", (f"训练集与测试集输入差异，按绝对标准化均值差展示前 {len(shown)}/{len(shift)} 个特征。标准差仅来自训练集；常量/全缺失特征的位移不定义，保留空点。缺失率使用全部样本。完整表还提供越出训练集取值范围的比例。该图描述输入差异，不证明漂移导致误差。" if zh else
-        f"Development/test input differences: top {len(shown)}/{len(shift)} by absolute standardized mean shift. SD uses training only; constant/all-missing features have undefined shifts and blank marks. Missingness uses all samples. Source also records fraction outside training range. Descriptive differences do not establish causes of error."), "feature-shift.csv")
+    if not basic:
+        shift = pd.read_csv(directory / "feature-shift.csv", dtype={"feature": str})
+        shift["magnitude"] = shift.standardized_mean_shift.abs()
+        shown = shift.sort_values("magnitude", ascending=False, na_position="last").head(12).iloc[::-1]
+        fig, (ax, bx) = panels(height=max(3.8, .28 * len(shown) + 1.6))
+        yy = np.arange(len(shown))
+        ax.scatter(shown.standardized_mean_shift, yy, color=ORANGE, s=22)
+        ax.axvline(0, color=GRAY, ls="--", lw=.8)
+        ax.set_yticks(yy, [textwrap.fill(f, 20) for f in shown.feature])
+        ax.set_xlabel("(Test mean - training mean) / SD")
+        bx.scatter(shown.development_missing, yy-.1, color=GRAY, label="Development", s=18)
+        bx.scatter(shown.test_missing, yy+.1, color=BLUE, label="Test", s=22)
+        bx.set_yticks(yy, [])
+        bx.set(xlabel="Missing fraction", xlim=(-.03, 1.03))
+        bx.legend(loc="upper center", bbox_to_anchor=(.5, -.22), ncol=2, fontsize=7)
+        for axis in (ax, bx):
+            axis.set_ylim(-.5, len(shown)-.5)
+        title(ax, "a", "Feature distribution shift")
+        title(bx, "b", "Missingness shift")
+        add(fig, "feature-shift", (f"训练集与测试集输入差异，按绝对标准化均值差展示前 {len(shown)}/{len(shift)} 个特征。标准差仅来自训练集；常量/全缺失特征的位移不定义，保留空点。缺失率使用全部样本。完整表还提供越出训练集取值范围的比例。该图描述输入差异，不证明漂移导致误差。" if zh else
+            f"Development/test input differences: top {len(shown)}/{len(shift)} by absolute standardized mean shift. SD uses training only; constant/all-missing features have undefined shifts and blank marks. Missingness uses all samples. Source also records fraction outside training range. Descriptive differences do not establish causes of error."), "feature-shift.csv")
     if (directory / "strata-metrics.csv").exists():
         strata = pd.read_csv(directory / "strata-metrics.csv", dtype={"stratum": str})
         pages = int(np.ceil(len(strata) / 20))
