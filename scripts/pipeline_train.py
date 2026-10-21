@@ -573,9 +573,15 @@ def run(args):
         permutation = None
         if args.permutations:
             print(f"Permutation test: {args.permutations} refits of {selected} on shuffled training labels")
-            result = permutation_test(
-                lambda labels: configured_pipeline(model, args, selected_parameters, train_x, labels, train_meta).fit(train_x, labels),
-                lambda fitted: scorer(fitted, test_x, test_y), train_y, args.permutations, args.seed)
+            try:
+                result = permutation_test(
+                    lambda labels: configured_pipeline(model, args, selected_parameters, train_x, labels, train_meta).fit(train_x, labels),
+                    lambda fitted: scorer(fitted, test_x, test_y), train_y, args.permutations, args.seed)
+            except ValueError as exc:
+                # A failed significance test should not discard a completed training run.
+                warnings.append(f"Permutation test skipped: {exc}")
+                result = None
+        if args.permutations and result is not None:
             sign = -1 if direction < 0 else 1  # report losses as positive values
             null = sign * result["null_scores"]
             pd.DataFrame({"permutation": np.arange(1, len(null) + 1), "score": null}).to_csv(
@@ -696,7 +702,8 @@ def parser():
     t.add_argument("--seed", type=int, default=42)
     t.add_argument("--model", action="append")
     t.add_argument("--preset", choices=("default", "all", *DOMAIN_MODELS), default="default")
-    t.add_argument("--save-candidates", action="store_true", help="Save each successful model refitted on development data")
+    t.add_argument("--save-candidates", action=argparse.BooleanOptionalAction, default=True,
+                   help="Save every successful model refitted on training data under candidates/ (default on; --no-save-candidates to skip)")
     t.add_argument("--model-params", type=Path, help="JSON mapping model tags to explicit estimator parameters")
     t.add_argument("--search", choices=("none", "grid", "random"), default="none")
     t.add_argument("--search-space", type=Path, help="JSON model tags to parameter value lists (or conditional grids)")
@@ -717,8 +724,8 @@ def parser():
     t.add_argument("--bootstrap", type=int, default=500,
                    help="Test percentile bootstrap repeats, 0 to disable; time designs omit intervals")
     t.add_argument("--positive-class", help="Binary classification: class treated as positive for AUC, AP, calibration and thresholds")
-    t.add_argument("--permutations", type=int, default=0,
-                   help="Label-permutation test of test performance (refits the final model N times; 0 disables, e.g. 1000)")
+    t.add_argument("--permutations", type=int, default=1000,
+                   help="Label-permutation test of test performance: refits the final model N times (default 1000; 0 disables)")
     t.add_argument("--analysis", choices=("basic", "full"), default="basic",
                    help="Report depth: basic (default) omits baseline comparison, bootstrap CIs and train/test comparability; full includes them")
     t.add_argument("--language", choices=("zh", "en"), default="zh")

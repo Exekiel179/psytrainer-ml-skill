@@ -336,6 +336,20 @@ def cjk_font_name():
                              "Songti SC", "PingFang SC") if f in installed), "SimSun")
 
 
+def write_context_template(directory, s):
+    """Fill-in report-context.json (empty labels) when the researcher supplied none."""
+    path = Path(directory) / "report-context.json"
+    if path.exists():
+        return
+    from report_facts import feature_names
+    template = {"question": s.get("question") or "", "title": "", "background": "", "population": "",
+                "target_label": "", "target_unit": "",
+                "feature_labels": {name: "" for name in feature_names(Path(directory))}}
+    if s.get("task") == "classification":
+        template["class_labels"] = {str(c): "" for c in s.get("classes") or []}
+    path.write_text(json.dumps(template, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def save_context(directory, context):
     """Validate a context file and keep it with the run for later regenerations."""
     if context is None:
@@ -364,6 +378,7 @@ def generate_report(directory, context=None, language=None, analysis=None):
     if analysis:
         s["analysis_level"] = analysis
     s.setdefault("analysis_level", "basic")
+    write_context_template(directory, s)
     basic = s["analysis_level"] == "basic"
     from pipeline_analysis import analyze
     analysis = analyze(directory, s)
